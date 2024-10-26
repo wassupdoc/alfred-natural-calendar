@@ -37,6 +37,9 @@ cl team sync every monday at 10am
 
 ## Basic Event Creation
 
+>[!note]+Note
+> ❌ ← Means it's still not working as expected
+
 ```bash
 # Simple event with time
 cl meeting at 2pm
