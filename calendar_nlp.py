@@ -281,15 +281,10 @@ class CalendarNLPProcessor:
         """Extract URL and notes from text"""
         notes, working_text = self._extract_notes(text)
         
-        print(f"Debug: Working text = {working_text}")  # Tambahkan baris ini
-        
         if 'zoom.us' in working_text.lower():
             url = self._extract_zoom_url(working_text)
-            print(f"Debug: Zoom URL extraction attempt = {url}")  # Tambahkan baris ini
         else:
             url = self._extract_general_url(working_text)
-        
-        print(f"Debug: Final extracted URL = {url}")
         
         return url, notes
 
@@ -556,19 +551,44 @@ def create_calendar_event(event_details: dict) -> str:
         
         if result.stderr:
             raise Exception(result.stderr)
-            
+        
+        # Format date/time
+        start_date = datetime.strptime(f"{event_details['start_date']} {event_details['start_time']}", 
+                                     "%Y-%m-%d %H:%M:%S")
+        time_str = start_date.strftime("%-I:%M %p")
+        today = datetime.now()
+        tomorrow = today + timedelta(days=1)
+        
+        if start_date.date() == today.date():
+            date_str = f"Today at {time_str}"
+        elif start_date.date() == tomorrow.date():
+            date_str = f"Tomorrow at {time_str}"
+        else:
+            date_str = start_date.strftime("%A, %B %-d at %I:%M %p")
+        
+        # Create notification details
+        notification_details = f"📅 {event_details['calendar']} • {date_str}"
+        if 'location' in event_details:
+            notification_details += f"\n📍 {event_details['location']}"
+        
+        # Return with title and notification text separated
         return json.dumps({
             "alfredworkflow": {
-                "arg": f"Event '{event_details['title']}' created successfully in {event_details['calendar']} calendar",
-                "variables": event_details
+                "arg": notification_details,
+                "variables": {
+                    "notificationTitle": event_details['title']
+                }
             }
         })
+        
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr if e.stderr else str(e)
         return json.dumps({
             "alfredworkflow": {
-                "arg": f"Error creating event: {error_msg}",
-                "variables": {"error": error_msg}
+                "arg": f"Error: {error_msg}",
+                "variables": {
+                    "notificationTitle": "Error"
+                }
             }
         })
 

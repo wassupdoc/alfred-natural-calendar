@@ -14,14 +14,14 @@ class CalendarProfileManager:
     def __init__(self):
         self.calendars = self.get_available_calendars()
         self.config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'calendar_config.json')
-        self.config = {}  # Inisialisasi config sebagai dictionary kosong
-        self.load_config()  # Panggil load_config untuk mengisi self.config
+        self.config = {}  # Initialize config as empty dictionary
+        self.load_config()  # Call load_config to fill self.config
         logging.debug(f"Calendars: {self.calendars}")
         logging.debug(f"Config: {self.config}")
 
     def get_available_calendars(self):
         """Get list of available calendars"""
-        logging.debug("Mengambil daftar kalender yang tersedia")
+        logging.debug("Getting available calendars")
         script = '''
         tell application "Calendar"
             return name of calendars
@@ -35,52 +35,52 @@ class CalendarProfileManager:
             calendars = [cal.strip() for cal in result.stdout.strip().split(',')]
             return self.sort_calendars(calendars)
         except subprocess.CalledProcessError as e:
-            logging.error(f"Error saat menjalankan AppleScript: {e}")
-            print(f"Error saat menjalankan AppleScript: {e}", file=sys.stderr)
+            logging.error(f"Error running AppleScript: {e}")
+            print(f"Error running AppleScript: {e}", file=sys.stderr)
             return ["Calendar"]
         except Exception as e:
-            logging.error(f"Error tidak terduga: {e}")
-            print(f"Error tidak terduga: {e}", file=sys.stderr)
+            logging.error(f"Unexpected error: {e}")
+            print(f"Unexpected error: {e}", file=sys.stderr)
             return ["Calendar"]
 
     def sort_calendars(self, calendars):
         """Sort calendars with numbers and alphabetically"""
         def sort_key(name):
-            parts = re.split(r'(\d+)', name)  # Tambahkan 'r' sebelum string untuk raw string
+            parts = re.split(r'(\d+)', name)
             parts = [int(part) if part.isdigit() else part.lower() for part in parts]
             return parts
         
         return sorted(calendars, key=sort_key)
 
     def load_config(self):
-        """Muat konfigurasi dari file"""
-        logging.debug("Memuat konfigurasi")
+        """Load configuration from file"""
+        logging.debug("Loading configuration")
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r') as f:
                     self.config = json.load(f)
                     if self.config.get('default_calendar') not in self.calendars:
                         self.config['default_calendar'] = self.calendars[0] if self.calendars else 'Calendar'
-                logging.debug(f"Konfigurasi dimuat: {self.config}")
+                logging.debug(f"Configuration loaded: {self.config}")
             except json.JSONDecodeError:
-                logging.error("File konfigurasi rusak. Membuat konfigurasi baru.")
-                print("Error: File konfigurasi rusak. Membuat konfigurasi baru.")
+                logging.error("Corrupted config file. Creating new configuration.")
+                print("Error: Corrupted config file. Creating new configuration.")
                 self.create_default_config()
             except Exception as e:
-                logging.error(f"Gagal memuat konfigurasi: {str(e)}")
-                print(f"Error: Gagal memuat konfigurasi: {str(e)}")
+                logging.error(f"Failed to load configuration: {str(e)}")
+                print(f"Error: Failed to load configuration: {str(e)}")
                 self.create_default_config()
         else:
-            logging.debug("File konfigurasi tidak ditemukan. Membuat konfigurasi baru.")
+            logging.debug("Config file not found. Creating new configuration.")
             self.create_default_config()
 
     def create_default_config(self):
-        """Buat konfigurasi default"""
+        """Create default configuration"""
         self.config = {"default_calendar": self.calendars[0] if self.calendars else 'Calendar'}
         self.save_config(self.config['default_calendar'])
 
     def save_config(self, calendar_name):
-        """Simpan konfigurasi ke file"""
+        """Save configuration to file"""
         if calendar_name in self.calendars:
             self.config["default_calendar"] = calendar_name
             try:
@@ -88,14 +88,14 @@ class CalendarProfileManager:
                     json.dump(self.config, f, indent=2)
                 return True
             except Exception as e:
-                print(f"Error: Gagal menyimpan konfigurasi: {str(e)}")
+                print(f"Error: Failed to save configuration: {str(e)}")
         return False
 
     def generate_items(self, query=None):
         """Generate Alfred items"""
         items = []
         query_lower = query.lower() if query else ""
-        default_cal = self.config.get('default_calendar', '')  # Gunakan .get() dengan nilai default
+        default_cal = self.config.get('default_calendar', '')
         
         # Filter calendars
         matching_calendars = [
@@ -130,37 +130,62 @@ class CalendarProfileManager:
         return items
 
 def main():
-    logging.debug("Memulai program")
+    logging.debug("Starting program")
     manager = CalendarProfileManager()
     
     if len(sys.argv) > 1:
         arg = " ".join(sys.argv[1:])
-        logging.debug(f"Argumen yang diterima: {arg}")
+        logging.debug(f"Received argument: {arg}")
         if arg.startswith("--set:"):
-            # Hapus semua kemunculan "--set:" dari argumen
+            # Remove all occurrences of "--set:" from argument
             calendar_name = arg.replace("--set:", "").strip()
-            logging.debug(f"Mencoba mengatur kalender: {calendar_name}")
+            logging.debug(f"Attempting to set calendar: {calendar_name}")
             if calendar_name in manager.calendars:
                 if manager.save_config(calendar_name):
-                    output = json.dumps({"alfredworkflow": {"arg": f"Kalender default diatur ke: {calendar_name}", "variables": {"calendar": calendar_name}}})
+                    # Updated notification format with title
+                    output = json.dumps({
+                        "alfredworkflow": {
+                            "arg": f"📅 {calendar_name}",
+                            "variables": {
+                                "calendar": calendar_name,
+                                "notificationTitle": "Default Calendar Set"
+                            }
+                        }
+                    })
                     logging.debug(f"Output: {output}")
                     print(output)
                 else:
-                    output = json.dumps({"alfredworkflow": {"arg": f"Error: Gagal mengatur kalender '{calendar_name}'", "variables": {"error": "true"}}})
-                    logging.error(f"Gagal mengatur kalender: {calendar_name}")
+                    output = json.dumps({
+                        "alfredworkflow": {
+                            "arg": f"Failed to set calendar '{calendar_name}'",
+                            "variables": {
+                                "error": "true",
+                                "notificationTitle": "Error"
+                            }
+                        }
+                    })
+                    logging.error(f"Failed to set calendar: {calendar_name}")
                     print(output)
             else:
-                output = json.dumps({"alfredworkflow": {"arg": f"Error: Kalender '{calendar_name}' tidak ditemukan", "variables": {"error": "true"}}})
-                logging.error(f"Kalender tidak ditemukan: {calendar_name}")
+                output = json.dumps({
+                    "alfredworkflow": {
+                        "arg": f"Calendar '{calendar_name}' not found",
+                        "variables": {
+                            "error": "true",
+                            "notificationTitle": "Error"
+                        }
+                    }
+                })
+                logging.error(f"Calendar not found: {calendar_name}")
                 print(output)
         else:
-            # Tampilkan daftar yang difilter
+            # Show filtered list
             items = manager.generate_items(arg)
             output = json.dumps({"items": items})
             logging.debug(f"Output: {output}")
             print(output)
     else:
-        # Tampilkan semua kalender
+        # Show all calendars
         items = manager.generate_items()
         output = json.dumps({"items": items})
         logging.debug(f"Output: {output}")
