@@ -4,6 +4,8 @@
 <dict>
 	<key>bundleid</key>
 	<string>com.ariestwn.calendar.nlp</string>
+	<key>category</key>
+	<string>Tools</string>
 	<key>connections</key>
 	<dict>
 		<key>615E51DB-AC60-408B-8153-E071D4718E0F</key>
@@ -462,7 +464,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 			<key>xpos</key>
 			<real>570</real>
 			<key>ypos</key>
-			<real>335</real>
+			<real>250</real>
 		</dict>
 	</dict>
 	<key>userconfigurationconfig</key>
@@ -513,6 +515,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 	<key>version</key>
 	<string>1.0.0</string>
 	<key>webaddress</key>
-	<string>https://github.com/ariestwn/calendar</string>
+	<string>https://github.com/ariestwn/alfred-natural-calendar</string>
 </dict>
 </plist>
