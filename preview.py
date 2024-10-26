@@ -5,9 +5,9 @@ import sys
 import json
 import re
 from datetime import datetime, timedelta
-from dateutil import parser, relativedelta
+from dateutil import parser
 import os
-from typing import Optional, List, Tuple
+from typing import Optional, List
 
 class EventPreview:
     def __init__(self):
@@ -133,17 +133,17 @@ class EventPreview:
 
                 # Format output
                 if target_date.date() == today.date():
-                    return f"Hari ini pukul {target_date.strftime('%-I:%M %p')}"
+                    return f"Today at {target_date.strftime('%-I:%M %p')}"
                 elif target_date.date() == (today + timedelta(days=1)).date():
-                    return f"Besok pukul {target_date.strftime('%-I:%M %p')}"
+                    return f"Tomorrow at {target_date.strftime('%-I:%M %p')}"
                 else:
-                    return target_date.strftime("%A, %d %B pukul %-I:%M %p")
+                    return target_date.strftime("%A, %B %-d at %-I:%M %p")
 
         except Exception as e:
             print(f"Error parsing date: {str(e)}", file=sys.stderr)
-            return "Tanggal tidak dikenali"
+            return "Invalid date"
 
-        return "Tanggal tidak dikenali"
+        return "Invalid date"
 
     def clean_title(self, text: str) -> str:
         # Remove calendar tags
@@ -201,15 +201,19 @@ class EventPreview:
         date = self.parse_date(text)
         location = self.parse_location(text)
         
-        subtitle = f"📅 {calendar} • {date}"
+        subtitle_parts = [f"📅 {calendar}"]
+        if date:
+            subtitle_parts.append(date)
         if location:
-            subtitle += f" • 📍 {location}"
+            subtitle_parts.append(f"📍 {location}")
+        
+        subtitle = " • ".join(subtitle_parts)
         
         items = [{
-            "title": title or "Ketik judul acara...",
+            "title": title or "Type event details...",
             "subtitle": subtitle,
             "arg": text,
-            "valid": bool(title and date != "Tanggal tidak dikenali"),
+            "valid": bool(title and date != "Invalid date"),
             "icon": {
                 "path": "icon.png"
             }
@@ -221,8 +225,8 @@ def main():
     if len(sys.argv) < 2:
         print(json.dumps({
             "items": [{
-                "title": "Ketik judul acara...",
-                "subtitle": "Gunakan bahasa alami untuk mendeskripsikan acara Anda",
+                "title": "Type event details...",
+                "subtitle": "Use natural language to describe your event",
                 "valid": False,
                 "icon": {
                     "path": "icon.png"
