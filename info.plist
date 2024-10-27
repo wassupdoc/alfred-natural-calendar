@@ -441,9 +441,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 		<key>A5B3C8D9-E0F1-4G2H-I3J4-K5L6M7N8O9P0</key>
 		<dict>
 			<key>xpos</key>
-			<real>80</real>
+			<real>85</real>
 			<key>ypos</key>
-			<real>180</real>
+			<real>170</real>
 		</dict>
 		<key>B7D4E8F9-C0A1-4B2C-D3E4-F5G6H7I8J9K0</key>
 		<dict>
@@ -455,9 +455,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 		<key>F36E2EDF-5F36-4E04-A4BC-FF488023114C</key>
 		<dict>
 			<key>xpos</key>
-			<real>75</real>
+			<real>85</real>
 			<key>ypos</key>
-			<real>370</real>
+			<real>360</real>
 		</dict>
 		<key>FB72E0A9-26B4-4764-87E1-8381FF60401F</key>
 		<dict>
