@@ -3,10 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Dependencies
+# Dependencies (will be installed automatically)
 workflow/lib/
 
-# Build
+# Distribution
 dist/*.alfredworkflow
 
 # macOS
@@ -17,5 +17,5 @@ dist/*.alfredworkflow
 .vscode/
 *.swp
 
-# Keep dist directory but ignore contents
+# Keep dist directory
 !dist/.gitkeep

@@ -3,32 +3,49 @@
 
 import sys
 import os
-
-# Add lib directory to Python path before any other imports
-workflow_dir = os.path.dirname(os.path.abspath(__file__))
-lib_dir = os.path.join(workflow_dir, 'lib')
-sys.path.insert(0, lib_dir)
-
-# Now try importing dateutil
-try:
-    from dateutil import parser, relativedelta
-except ImportError as e:
-    import json
-    print(json.dumps({
-        "alfredworkflow": {
-            "arg": "Setup Required: Run setup.sh to install dependencies",
-            "variables": {
-                "error": "import_error",
-                "notificationTitle": "Setup Required"
-            }
-        }
-    }))
-    sys.exit(1)
-
+import subprocess
 import json
+
+def ensure_dependencies():
+    """Ensure all required dependencies are installed"""
+    workflow_dir = os.path.dirname(os.path.abspath(__file__))
+    lib_dir = os.path.join(workflow_dir, 'lib')
+    
+    if not os.path.exists(lib_dir) or not os.path.exists(os.path.join(lib_dir, 'dateutil')):
+        error_msg = json.dumps({
+            "alfredworkflow": {
+                "arg": "First-time setup in progress... Please try again in a moment.",
+                "variables": {
+                    "notificationTitle": "Setup Required"
+                }
+            }
+        })
+        print(error_msg)
+        
+        setup_script = os.path.join(workflow_dir, 'setup.py')
+        try:
+            subprocess.run([sys.executable, setup_script], check=True)
+            sys.exit(0)  # Exit after setup to ensure clean import on next run
+        except subprocess.CalledProcessError:
+            error_msg = json.dumps({
+                "alfredworkflow": {
+                    "arg": "Error installing dependencies. Please check the logs.",
+                    "variables": {
+                        "notificationTitle": "Setup Failed"
+                    }
+                }
+            })
+            print(error_msg)
+            sys.exit(1)
+
+# Run dependency check before any other imports
+ensure_dependencies()
+
+# Now it's safe to import other modules
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
+from dateutil import parser, relativedelta
 import re
 from datetime import datetime, timedelta, date
-import subprocess
 import urllib.parse
 from typing import Dict, Optional, List, Tuple
 

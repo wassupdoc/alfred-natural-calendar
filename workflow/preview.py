@@ -3,33 +3,53 @@
 
 import sys
 import os
-
-# Add lib directory to Python path before any other imports
-workflow_dir = os.path.dirname(os.path.abspath(__file__))
-lib_dir = os.path.join(workflow_dir, 'lib')
-sys.path.insert(0, lib_dir)
-
-# Now try importing dateutil
-try:
-    from dateutil import parser
-except ImportError as e:
-    import json
-    print(json.dumps({
-        "items": [{
-            "title": "Setup Required",
-            "subtitle": "Run setup.sh to install required dependencies",
-            "valid": False,
-            "icon": {
-                "path": "icon.png"
-            }
-        }]
-    }))
-    sys.exit(1)
-
+import subprocess
 import json
+
+def ensure_dependencies():
+    """Ensure all required dependencies are installed"""
+    workflow_dir = os.path.dirname(os.path.abspath(__file__))
+    lib_dir = os.path.join(workflow_dir, 'lib')
+    
+    if not os.path.exists(lib_dir) or not os.path.exists(os.path.join(lib_dir, 'dateutil')):
+        print(json.dumps({
+            "items": [{
+                "title": "First-time setup...",
+                "subtitle": "Installing required dependencies. Please wait and try again.",
+                "valid": False,
+                "icon": {
+                    "path": "icon.png"
+                }
+            }]
+        }))
+        
+        setup_script = os.path.join(workflow_dir, 'setup.py')
+        try:
+            subprocess.run([sys.executable, setup_script], check=True)
+            sys.exit(0)  # Exit after setup to ensure clean import on next run
+        except subprocess.CalledProcessError:
+            print(json.dumps({
+                "items": [{
+                    "title": "Setup Failed",
+                    "subtitle": "Error installing dependencies. Please check the logs.",
+                    "valid": False,
+                    "icon": {
+                        "path": "icon.png"
+                    }
+                }]
+            }))
+            sys.exit(1)
+
+# Run dependency check before any other imports
+ensure_dependencies()
+
+# Now it's safe to import other modules
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
+from dateutil import parser
 import re
 from datetime import datetime, timedelta
 from typing import Optional, List
+
 
 class EventPreview:
     def __init__(self):
