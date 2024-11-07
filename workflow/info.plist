@@ -4,8 +4,6 @@
 <dict>
 	<key>bundleid</key>
 	<string>com.ariestwn.calendar.nlp</string>
-	<key>category</key>
-	<string>Tools</string>
 	<key>connections</key>
 	<dict>
 		<key>615E51DB-AC60-408B-8153-E071D4718E0F</key>

@@ -2,11 +2,33 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import os
+
+# Add lib directory to Python path before any other imports
+workflow_dir = os.path.dirname(os.path.abspath(__file__))
+lib_dir = os.path.join(workflow_dir, 'lib')
+sys.path.insert(0, lib_dir)
+
+# Now try importing dateutil
+try:
+    from dateutil import parser
+except ImportError as e:
+    import json
+    print(json.dumps({
+        "items": [{
+            "title": "Setup Required",
+            "subtitle": "Run setup.sh to install required dependencies",
+            "valid": False,
+            "icon": {
+                "path": "icon.png"
+            }
+        }]
+    }))
+    sys.exit(1)
+
 import json
 import re
 from datetime import datetime, timedelta
-from dateutil import parser
-import os
 from typing import Optional, List
 
 class EventPreview:

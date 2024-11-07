@@ -1,15 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import sys
+import os
+
+# Add lib directory to Python path before any other imports
+workflow_dir = os.path.dirname(os.path.abspath(__file__))
+lib_dir = os.path.join(workflow_dir, 'lib')
+sys.path.insert(0, lib_dir)
+
+# Now try importing dateutil
+try:
+    from dateutil import parser, relativedelta
+except ImportError as e:
+    import json
+    print(json.dumps({
+        "alfredworkflow": {
+            "arg": "Setup Required: Run setup.sh to install dependencies",
+            "variables": {
+                "error": "import_error",
+                "notificationTitle": "Setup Required"
+            }
+        }
+    }))
+    sys.exit(1)
+
+import json
 import re
 from datetime import datetime, timedelta, date
-import json
 import subprocess
-import sys
-from dateutil import parser, relativedelta
-from typing import Dict, Optional, List, Tuple
 import urllib.parse
-import os
+from typing import Dict, Optional, List, Tuple
+
 
 class CalendarNLPProcessor:
     def __init__(self):
