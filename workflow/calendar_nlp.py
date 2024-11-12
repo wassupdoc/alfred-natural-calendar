@@ -64,8 +64,8 @@ class CalendarNLPProcessor:
     def __init__(self):
         self.calendars = self.get_available_calendars()
         self.config = self.load_config()
-        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
         self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|(\S+))'
+        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
         self.relative_time_pattern = r'in\s+(\d+)\s+(minutes?|hours?)'
         self.date_range_pattern = r'from\s+(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(?:-|to)\s*(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)'
         self.duration_patterns = {
@@ -109,11 +109,6 @@ class CalendarNLPProcessor:
             # Multiple weekdays must be explicit with "every"
             r'every\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:days?|\.)?(?:\s+and\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:days?|\.)?)*': 
                 lambda x: f'FREQ=WEEKLY;BYDAY={",".join(day[:2].upper() for day in re.findall(r"mon|tue|wed|thu|fri|sat|sun", x.group(0)))}'
-        }
-        self.calendar_keywords = {
-            'work': ['work', 'office', 'business'],
-            'personal': ['personal', 'private'],
-            'family': ['family', 'home']
         }
         self.weekday_map = {
             'monday': 'MO', 'tuesday': 'TU', 'wednesday': 'WE', 'thursday': 'TH',
@@ -194,24 +189,32 @@ class CalendarNLPProcessor:
             return ["Calendar"]
 
     def parse_calendar_name(self, text: str) -> str:
-        """Determine which calendar to use based on text"""
+        """Determine which calendar to use"""
         # First check for explicit calendar selection with #
-        calendar_match = re.search(r'#(\w+)', text)
+        calendar_match = re.search(self.calendar_pattern, text)
         if calendar_match:
-            calendar_name = calendar_match.group(1).capitalize()
-            if calendar_name in self.calendars:
-                return calendar_name
+            requested_calendar = next((g for g in calendar_match.groups() if g is not None), None)
+            if requested_calendar:
+                # Verify calendar exists in available calendars
+                matching_calendars = [cal for cal in self.calendars 
+                                   if cal.lower() == requested_calendar.lower()]
+                if matching_calendars:
+                    return matching_calendars[0]
+                
+                # If no exact match, try partial match
+                matching_calendars = [cal for cal in self.calendars 
+                                   if requested_calendar.lower() in cal.lower()]
+                if matching_calendars:
+                    return matching_calendars[0]
+    
+        # Use default calendar from config
+        default_cal = self.config.get('default_calendar')
+        if default_cal and any(cal.lower() == default_cal.lower() for cal in self.calendars):
+            matching_cals = [cal for cal in self.calendars 
+                           if cal.lower() == default_cal.lower()]
+            return matching_cals[0]
         
-        # Then check for calendar keywords
-        text_lower = text.lower()
-        for cal_name, keywords in self.calendar_keywords.items():
-            if any(keyword in text_lower for keyword in keywords):
-                matching_cals = [c for c in self.calendars if cal_name.lower() in c.lower()]
-                if matching_cals:
-                    return matching_cals[0]
-        
-        # If no matches found, use default calendar from config
-        return self.config.get('default_calendar')
+        return "Calendar"
 
     def parse_duration(self, text: str) -> int:
         """Extract duration in minutes from text"""
