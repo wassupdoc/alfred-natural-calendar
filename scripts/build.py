@@ -56,7 +56,7 @@ class WorkflowBuilder:
             # Create workflow bundle
             output_file = os.path.join(
                 self.dist_dir,
-                f'Natural-Calendar-v{self.version}.alfredworkflow'
+                f'Natural-Calendar-{self.version}.alfredworkflow'
             )
 
             # Remove existing file if it exists

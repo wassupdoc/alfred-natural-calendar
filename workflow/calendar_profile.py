@@ -107,8 +107,10 @@ class CalendarProfileManager:
     def save_config(self, calendar_name):
         """Save configuration to file"""
         if calendar_name in self.calendars:
-            self.config["default_calendar"] = calendar_name
             try:
+                # Save only default_calendar
+                self.config = {"default_calendar": calendar_name}
+                
                 with open(self.config_file, 'w') as f:
                     json.dump(self.config, f, indent=2)
                 return True
