@@ -12,30 +12,31 @@ def ensure_dependencies():
     lib_dir = os.path.join(workflow_dir, 'lib')
     
     if not os.path.exists(lib_dir) or not os.path.exists(os.path.join(lib_dir, 'dateutil')):
-        error_msg = json.dumps({
-            "alfredworkflow": {
-                "arg": "First-time setup in progress... Please try again in a moment.",
-                "variables": {
-                    "notificationTitle": "Setup Required"
-                }
-            }
-        })
-        print(error_msg)
-        
         setup_script = os.path.join(workflow_dir, 'setup.py')
         try:
-            subprocess.run([sys.executable, setup_script], check=True)
-            sys.exit(0)  # Exit after setup to ensure clean import on next run
-        except subprocess.CalledProcessError:
-            error_msg = json.dumps({
+            subprocess.run([sys.executable, setup_script], 
+                         check=True,
+                         stdout=subprocess.DEVNULL,  # Hide stdout
+                         stderr=subprocess.DEVNULL)  # Hide stderr
+            
+            print(json.dumps({
                 "alfredworkflow": {
-                    "arg": "Error installing dependencies. Please check the logs.",
+                    "arg": "Setup complete. Please try again.",
                     "variables": {
-                        "notificationTitle": "Setup Failed"
+                        "notificationTitle": "NLP Calendar setup"
                     }
                 }
-            })
-            print(error_msg)
+            }))
+            sys.exit(0)
+        except subprocess.CalledProcessError:
+            print(json.dumps({
+                "alfredworkflow": {
+                    "arg": "Setup failed. Please check the workflow logs.",
+                    "variables": {
+                        "notificationTitle": "Error"
+                    }
+                }
+            }))
             sys.exit(1)
 
 # Run dependency check before any other imports

@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-setup.py - Automatic dependency installer for Calendar NLP Workflow
-This script runs automatically when the workflow is first used or when dependencies are missing.
-"""
-
 import os
 import sys
 import subprocess
 import shutil
 from pathlib import Path
-import json
 
 def setup_workflow():
     """Install required dependencies for the workflow"""
@@ -28,41 +22,35 @@ def setup_workflow():
     # Create __init__.py
     Path(os.path.join(lib_dir, '__init__.py')).touch()
     
-    # Install python-dateutil
+    # Install python-dateutil quietly
     try:
         subprocess.run([
             sys.executable,
             '-m', 'pip',
             'install',
             '--target', lib_dir,
-            '--upgrade',
+            '--quiet',  # Make pip quiet
             '--no-cache-dir',
             'python-dateutil'
-        ], check=True)
+        ], check=True,
+        stdout=subprocess.DEVNULL,  # Hide stdout
+        stderr=subprocess.DEVNULL)  # Hide stderr
         
         # Verify installation
         sys.path.insert(0, lib_dir)
         try:
             from dateutil import parser
-            print("Dependencies installed successfully!")
             return True
         except ImportError:
-            print("Failed to verify installation.")
             return False
             
-    except subprocess.CalledProcessError as e:
-        print(f"Error installing dependencies: {e}")
+    except subprocess.CalledProcessError:
         return False
 
 def main():
-    try:
-        if setup_workflow():
-            sys.exit(0)
-        else:
-            sys.exit(1)
-    except Exception as e:
-        print(f"Setup failed: {str(e)}")
-        sys.exit(1)
+    if setup_workflow():
+        sys.exit(0)
+    sys.exit(1)
 
 if __name__ == "__main__":
     main()
