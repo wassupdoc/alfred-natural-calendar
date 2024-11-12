@@ -49,12 +49,22 @@ from datetime import datetime, timedelta, date
 import urllib.parse
 from typing import Dict, Optional, List, Tuple
 
+def get_workflow_data_dir():
+    """Get Alfred workflow data directory"""
+    data_dir = os.getenv('alfred_workflow_data')
+    if not data_dir:
+        data_dir = os.path.expanduser('~/Library/Application Support/Alfred/Workflow Data/com.ariestwn.calendar.nlp')
+    
+    # Create directory if it doesn't exist
+    os.makedirs(data_dir, exist_ok=True)
+    return data_dir
 
 class CalendarNLPProcessor:
     def __init__(self):
         self.calendars = self.get_available_calendars()
         self.config = self.load_config()
         self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
+        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|(\S+))'
         self.relative_time_pattern = r'in\s+(\d+)\s+(minutes?|hours?)'
         self.date_range_pattern = r'from\s+(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(?:-|to)\s*(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)'
         self.duration_patterns = {
@@ -128,24 +138,44 @@ class CalendarNLPProcessor:
                 return None
         return None
     
+    
     def load_config(self) -> Dict:
-        """Load calendar configuration from config file"""
-        config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'calendar_config.json')
+        """Load calendar configuration from the correct location"""
+        data_dir = get_workflow_data_dir()
+        config_file = os.path.join(data_dir, 'calendar_config.json')
+        
         try:
             with open(config_file, 'r') as f:
                 config = json.load(f)
-                # Validate that default calendar exists
-                if config.get('default_calendar') not in self.calendars:
-                    config['default_calendar'] = self.calendars[0] if self.calendars else 'Calendar'
+                # Verify that default calendar exists
+                if config.get('default_calendar'):
+                    # Find exact match ignoring case
+                    matching_calendars = [cal for cal in self.calendars 
+                                    if cal.lower() == config['default_calendar'].lower()]
+                    if matching_calendars:
+                        config['default_calendar'] = matching_calendars[0]
+                    else:
+                        config['default_calendar'] = "Calendar"
+                else:
+                    config['default_calendar'] = "Calendar"
                 return config
-        except:
-            return {"default_calendar": self.calendars[0] if self.calendars else 'Calendar'}
+        except Exception as e:
+            print(f"Error loading config: {str(e)}", file=sys.stderr)
+            return {"default_calendar": "Calendar"}
 
     def get_available_calendars(self) -> List[str]:
-        """Get list of available calendars"""
+        """Get list of available and writable calendars"""
         script = '''
         tell application "Calendar"
-            return name of calendars
+            set calList to {}
+            repeat with calItem in calendars
+                try
+                    if writable of calItem then
+                        copy (name of calItem as string) to the end of calList
+                    end if
+                end try
+            end repeat
+            return calList
         end tell
         '''
         try:
@@ -153,9 +183,14 @@ class CalendarNLPProcessor:
                                   capture_output=True,
                                   text=True,
                                   check=True)
-            return [cal.strip() for cal in result.stdout.strip().split(',')]
-        except:
-            return ["Personal"]
+            calendars = [cal.strip() for cal in result.stdout.strip().split(',')]
+            if not calendars:
+                print("Warning: No writable calendars found", file=sys.stderr)
+                return ["Calendar"]
+            return calendars
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting calendars: {e}", file=sys.stderr)
+            return ["Calendar"]
 
     def parse_calendar_name(self, text: str) -> str:
         """Determine which calendar to use based on text"""
@@ -438,9 +473,17 @@ class CalendarNLPProcessor:
         return base_date
 
     def parse_event(self, text: str) -> dict:
+        """Parse event with calendar selection from preview state"""
         try:
             url, notes = self.parse_url_and_notes(text)
             clean_text = self._clean_text_for_parsing(text, url)
+            
+            # Use the current selected calendar from preview or fallback to default
+            preview_calendar = self.config.get('preview_calendar')
+            if preview_calendar and preview_calendar in self.calendars:
+                calendar_name = preview_calendar
+            else:
+                calendar_name = self.parse_calendar_name(clean_text)
             
             # Check for date range
             date_range = self.parse_date_range(clean_text)
@@ -448,7 +491,7 @@ class CalendarNLPProcessor:
                 start_date, end_date = date_range
                 event_details = {
                     'title': self.clean_title(clean_text),
-                    'calendar': self.parse_calendar_name(clean_text),
+                    'calendar': calendar_name,
                     'start_date': start_date.strftime('%Y-%m-%d'),
                     'start_time': start_date.strftime('%H:%M:%S'),
                     'end_date': end_date.strftime('%Y-%m-%d'),
@@ -463,7 +506,7 @@ class CalendarNLPProcessor:
                 
                 event_details = {
                     'title': self.clean_title(clean_text),
-                    'calendar': self.parse_calendar_name(clean_text),
+                    'calendar': calendar_name,
                     'start_date': parsed_date.strftime('%Y-%m-%d'),
                     'start_time': parsed_date.strftime('%H:%M:%S'),
                     'end_date': end_date.strftime('%Y-%m-%d'),
@@ -526,11 +569,15 @@ class CalendarNLPProcessor:
             event_details['recurrence'] = recurrence
 
 def create_calendar_event(event_details: dict) -> str:
+    """Create calendar event with proper AppleScript escaping"""
     start_date = datetime.strptime(f"{event_details['start_date']} {event_details['start_time']}", "%Y-%m-%d %H:%M:%S")
+    
+    # Properly escape calendar name for AppleScript
+    calendar_name = event_details["calendar"].replace('"', '\\"')
     
     script_parts = [
         'tell application "Calendar"',
-        f'    tell calendar "{event_details["calendar"]}"',
+        f'    tell calendar "{calendar_name}"',  # Calendar name is now properly escaped
         '        set startDate to current date',
         f'        set year of startDate to {start_date.year}',
         f'        set month of startDate to {start_date.month}',
@@ -547,20 +594,25 @@ def create_calendar_event(event_details: dict) -> str:
         f'        set minutes of endDate to {int(event_details["end_time"].split(":")[1])}',
         '        set seconds of endDate to 0',
         '',
+        # Use quoted form for all property values
         f'        set newEvent to make new event with properties {{summary:"{event_details["title"]}", start date:startDate, end date:endDate}}'
     ]
     
     if 'location' in event_details:
-        script_parts.append(f'        set location of newEvent to "{event_details["location"]}"')
+        location = event_details['location'].replace('"', '\\"')
+        script_parts.append(f'        set location of newEvent to "{location}"')
     
     if 'url' in event_details:
-        script_parts.append(f'        set url of newEvent to "{event_details["url"]}"')
+        url = event_details['url'].replace('"', '\\"')
+        script_parts.append(f'        set url of newEvent to "{url}"')
     
     if 'notes' in event_details:
-        script_parts.append(f'        set description of newEvent to "{event_details["notes"]}"')
+        notes = event_details['notes'].replace('"', '\\"')
+        script_parts.append(f'        set description of newEvent to "{notes}"')
     
     if 'recurrence' in event_details:
-        script_parts.append(f'        set recurrence of newEvent to "{event_details["recurrence"]}"')
+        recurrence = event_details['recurrence'].replace('"', '\\"')
+        script_parts.append(f'        set recurrence of newEvent to "{recurrence}"')
     
     for minutes in event_details['alerts']:
         alert_time = start_date - timedelta(minutes=minutes)
@@ -591,7 +643,7 @@ def create_calendar_event(event_details: dict) -> str:
         if result.stderr:
             raise Exception(result.stderr)
         
-        # Format date/time
+        # Format date/time for notification
         start_date = datetime.strptime(f"{event_details['start_date']} {event_details['start_time']}", 
                                      "%Y-%m-%d %H:%M:%S")
         time_str = start_date.strftime("%-I:%M %p")
@@ -610,7 +662,6 @@ def create_calendar_event(event_details: dict) -> str:
         if 'location' in event_details:
             notification_details += f"\n📍 {event_details['location']}"
         
-        # Return with title and notification text separated
         return json.dumps({
             "alfredworkflow": {
                 "arg": notification_details,

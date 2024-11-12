@@ -47,11 +47,18 @@ class CalendarProfileManager:
         return sorted(calendars, key=sort_key)
 
     def get_available_calendars(self):
-        """Get list of available calendars"""
-        logging.debug("Getting available calendars")
+        """Get list of available and writable calendars"""
         script = '''
         tell application "Calendar"
-            return name of calendars
+            set calList to {}
+            repeat with calItem in calendars
+                try
+                    if writable of calItem then
+                        copy (name of calItem as string) to the end of calList
+                    end if
+                end try
+            end repeat
+            return calList
         end tell
         '''
         try:
