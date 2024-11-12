@@ -473,17 +473,12 @@ class CalendarNLPProcessor:
         return base_date
 
     def parse_event(self, text: str) -> dict:
-        """Parse event with calendar selection from preview state"""
         try:
             url, notes = self.parse_url_and_notes(text)
             clean_text = self._clean_text_for_parsing(text, url)
             
-            # Use the current selected calendar from preview or fallback to default
-            preview_calendar = self.config.get('preview_calendar')
-            if preview_calendar and preview_calendar in self.calendars:
-                calendar_name = preview_calendar
-            else:
-                calendar_name = self.parse_calendar_name(clean_text)
+            # Get calendar based on text or default
+            calendar_name = self.parse_calendar_name(clean_text)
             
             # Check for date range
             date_range = self.parse_date_range(clean_text)
