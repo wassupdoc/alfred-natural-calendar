@@ -64,7 +64,7 @@ class CalendarNLPProcessor:
     def __init__(self):
         self.calendars = self.get_available_calendars()
         self.config = self.load_config()
-        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|(\S+))'
+        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
         self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
         self.relative_time_pattern = r'in\s+(\d+)\s+(minutes?|hours?)'
         self.date_range_pattern = r'from\s+(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(?:-|to)\s*(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)'
@@ -189,29 +189,29 @@ class CalendarNLPProcessor:
             return ["Calendar"]
 
     def parse_calendar_name(self, text: str) -> str:
-        """Determine which calendar to use"""
+        """Determine which calendar to use based on text"""
+        print(f"Debug - Input text: {text}", file=sys.stderr)
+        
         # First check for explicit calendar selection with #
         calendar_match = re.search(self.calendar_pattern, text)
         if calendar_match:
+            # Get the first non-None group (only one should match)
             requested_calendar = next((g for g in calendar_match.groups() if g is not None), None)
             if requested_calendar:
+                # Print for debugging
+                print(f"Debug - Found calendar: {requested_calendar}", file=sys.stderr)
                 # Verify calendar exists in available calendars
                 matching_calendars = [cal for cal in self.calendars 
-                                   if cal.lower() == requested_calendar.lower()]
+                                if cal.lower() == requested_calendar.lower()]
                 if matching_calendars:
+                    print(f"Debug - Matched calendar: {matching_calendars[0]}", file=sys.stderr)
                     return matching_calendars[0]
-                
-                # If no exact match, try partial match
-                matching_calendars = [cal for cal in self.calendars 
-                                   if requested_calendar.lower() in cal.lower()]
-                if matching_calendars:
-                    return matching_calendars[0]
-    
+        
         # Use default calendar from config
         default_cal = self.config.get('default_calendar')
         if default_cal and any(cal.lower() == default_cal.lower() for cal in self.calendars):
             matching_cals = [cal for cal in self.calendars 
-                           if cal.lower() == default_cal.lower()]
+                        if cal.lower() == default_cal.lower()]
             return matching_cals[0]
         
         return "Calendar"
@@ -568,73 +568,79 @@ class CalendarNLPProcessor:
             event_details['recurrence'] = recurrence
 
 def create_calendar_event(event_details: dict) -> str:
-    """Create calendar event with proper AppleScript escaping"""
+    """Create calendar event with proper date handling"""
     start_date = datetime.strptime(f"{event_details['start_date']} {event_details['start_time']}", "%Y-%m-%d %H:%M:%S")
+    end_date = datetime.strptime(f"{event_details['end_date']} {event_details['end_time']}", "%Y-%m-%d %H:%M:%S")
     
-    # Properly escape calendar name for AppleScript
+    # Properly escape the strings for AppleScript
     calendar_name = event_details["calendar"].replace('"', '\\"')
+    title = event_details["title"].replace('"', '\\"')
     
-    script_parts = [
-        'tell application "Calendar"',
-        f'    tell calendar "{calendar_name}"',  # Calendar name is now properly escaped
-        '        set startDate to current date',
-        f'        set year of startDate to {start_date.year}',
-        f'        set month of startDate to {start_date.month}',
-        f'        set day of startDate to {start_date.day}',
-        f'        set hours of startDate to {start_date.hour}',
-        f'        set minutes of startDate to {start_date.minute}',
-        '        set seconds of startDate to 0',
-        '',
-        '        set endDate to current date',
-        f'        set year of endDate to {int(event_details["end_date"][:4])}',
-        f'        set month of endDate to {int(event_details["end_date"][5:7])}',
-        f'        set day of endDate to {int(event_details["end_date"][8:10])}',
-        f'        set hours of endDate to {int(event_details["end_time"].split(":")[0])}',
-        f'        set minutes of endDate to {int(event_details["end_time"].split(":")[1])}',
-        '        set seconds of endDate to 0',
-        '',
-        # Use quoted form for all property values
-        f'        set newEvent to make new event with properties {{summary:"{event_details["title"]}", start date:startDate, end date:endDate}}'
-    ]
+    script = f'''
+        tell application "Calendar"
+            tell calendar "{calendar_name}"
+                -- Set up start date
+                set eventStartDate to current date
+                set year of eventStartDate to {start_date.year}
+                set month of eventStartDate to {start_date.month}
+                set day of eventStartDate to {start_date.day}
+                set hours of eventStartDate to {start_date.hour}
+                set minutes of eventStartDate to {start_date.minute}
+                set seconds of eventStartDate to 0
+                
+                -- Set up end date
+                set eventEndDate to current date
+                set year of eventEndDate to {end_date.year}
+                set month of eventEndDate to {end_date.month}
+                set day of eventEndDate to {end_date.day}
+                set hours of eventEndDate to {end_date.hour}
+                set minutes of eventEndDate to {end_date.minute}
+                set seconds of eventEndDate to 0
+                
+                -- Create event with all required properties
+                make new event with properties {{summary:"{title}", start date:eventStartDate, end date:eventEndDate}}
+                set newEvent to result
+    '''
     
+    # Add optional properties
     if 'location' in event_details:
         location = event_details['location'].replace('"', '\\"')
-        script_parts.append(f'        set location of newEvent to "{location}"')
+        script += f'\n                set location of newEvent to "{location}"'
     
     if 'url' in event_details:
         url = event_details['url'].replace('"', '\\"')
-        script_parts.append(f'        set url of newEvent to "{url}"')
+        script += f'\n                set url of newEvent to "{url}"'
     
     if 'notes' in event_details:
         notes = event_details['notes'].replace('"', '\\"')
-        script_parts.append(f'        set description of newEvent to "{notes}"')
+        script += f'\n                set description of newEvent to "{notes}"'
     
     if 'recurrence' in event_details:
         recurrence = event_details['recurrence'].replace('"', '\\"')
-        script_parts.append(f'        set recurrence of newEvent to "{recurrence}"')
+        script += f'\n                set recurrence of newEvent to "{recurrence}"'
     
+    # Add alerts
     for minutes in event_details['alerts']:
         alert_time = start_date - timedelta(minutes=minutes)
-        script_parts.append(f'''
-        set alertDate to current date
-        set year of alertDate to {alert_time.year}
-        set month of alertDate to {alert_time.month}
-        set day of alertDate to {alert_time.day}
-        set hours of alertDate to {alert_time.hour}
-        set minutes of alertDate to {alert_time.minute}
-        set seconds of alertDate to 0
-        make new display alarm at newEvent with properties {{trigger date:alertDate}}
-        ''')
+        script += f'''
+                set alertDate to current date
+                set year of alertDate to {alert_time.year}
+                set month of alertDate to {alert_time.month}
+                set day of alertDate to {alert_time.day}
+                set hours of alertDate to {alert_time.hour}
+                set minutes of alertDate to {alert_time.minute}
+                set seconds of alertDate to 0
+                make new display alarm at newEvent with properties {{trigger date:alertDate}}
+        '''
     
-    script_parts.extend([
-        '    end tell',
-        'end tell'
-    ])
-    
-    applescript = '\n'.join(script_parts)
+    script += '''
+                return newEvent
+            end tell
+        end tell
+    '''
     
     try:
-        result = subprocess.run(['osascript', '-e', applescript],
+        result = subprocess.run(['osascript', '-e', script],
                               capture_output=True,
                               text=True,
                               check=True)
@@ -642,9 +648,7 @@ def create_calendar_event(event_details: dict) -> str:
         if result.stderr:
             raise Exception(result.stderr)
         
-        # Format date/time for notification
-        start_date = datetime.strptime(f"{event_details['start_date']} {event_details['start_time']}", 
-                                     "%Y-%m-%d %H:%M:%S")
+        # Format notification...
         time_str = start_date.strftime("%-I:%M %p")
         today = datetime.now()
         tomorrow = today + timedelta(days=1)
@@ -656,7 +660,6 @@ def create_calendar_event(event_details: dict) -> str:
         else:
             date_str = start_date.strftime("%A, %B %-d at %I:%M %p")
         
-        # Create notification details
         notification_details = f"📅 {event_details['calendar']} • {date_str}"
         if 'location' in event_details:
             notification_details += f"\n📍 {event_details['location']}"

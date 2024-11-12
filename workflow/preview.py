@@ -19,7 +19,7 @@ def get_workflow_data_dir():
 class EventPreview:
     def __init__(self):
         # Initialize patterns
-        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|(\S+))'
+        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
         self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
         self.location_pattern = r'(?:^|\s)(?:at|in)\s+([^,\.\d][^,\.]*?)(?=\s+(?:on|at|from|tomorrow|today|next|every|\d{1,2}(?::\d{2})?(?:am|pm)|url:|notes?:|link:)|\s*$)'
         
@@ -44,8 +44,11 @@ class EventPreview:
         """Extract calendar name from text or use default"""
         calendar_match = re.search(self.calendar_pattern, text)
         if calendar_match:
+            # Only get the first non-None group
             requested_calendar = next((g for g in calendar_match.groups() if g is not None), None)
             if requested_calendar:
+                # Print for debugging
+                print(f"Debug - Calendar found in preview: {requested_calendar}", file=sys.stderr)
                 return requested_calendar.strip()
         return self.default_calendar
 
@@ -160,10 +163,7 @@ class EventPreview:
         date = self.parse_date(text)
         location = self.parse_location(text)
         
-        # Remove calendar tag from argument
-        cleaned_text = re.sub(self.calendar_pattern, '', text).strip()
-        
-        # Build subtitle
+        # Instead of removing the calendar tag, preserve it
         subtitle_parts = [f"📅 {calendar}"]
         if date:
             subtitle_parts.append(date)
@@ -175,7 +175,7 @@ class EventPreview:
         return [{
             "title": title or "Type event details...",
             "subtitle": subtitle,
-            "arg": cleaned_text,
+            "arg": text,  # Pass the original text with calendar tag
             "valid": bool(title and date != "Invalid date"),
             "icon": {"path": "icon.png"}
         }]
