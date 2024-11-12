@@ -41,7 +41,7 @@ class EventPreview:
         }
 
     def get_calendar(self, text: str) -> str:
-        """Extract calendar name from text"""
+        """Extract calendar name from text or use default"""
         calendar_match = re.search(self.calendar_pattern, text)
         if calendar_match:
             requested_calendar = next((g for g in calendar_match.groups() if g is not None), None)
