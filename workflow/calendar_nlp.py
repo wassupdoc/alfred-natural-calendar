@@ -64,119 +64,204 @@ class CalendarNLPProcessor:
     def __init__(self):
         self.calendars = self.get_available_calendars()
         self.config = self.load_config()
-        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
-        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am?|pm?)\b'
-        self.relative_time_pattern = r'in\s+(\d+)\s+(minutes?|hours?)'
-        self.date_range_pattern = r'from\s+(\w+(?:\s+\d{1,2}(?:st|nd|rd|th)?|\s*\d{1,2}(?:/\d{1,2}(?:/\d{2,4})?)?))(?:\s*(?:-|to|until)\s*)(\w+(?:\s+\d{1,2}(?:st|nd|rd|th)?|\s*\d{1,2}(?:/\d{1,2}(?:/\d{2,4})?)?)))'
-        self.duration_patterns = {
-            'days': r'for\s+(\d+)\s+days?',
-            'hours': r'for\s+(\d+)\s+hours?',
-            'minutes': r'for\s+(\d+)\s+min(?:ute)?s?',
-            'time_range': r'(\d{1,2})(?::(\d{2}))?\s*(am?|pm?)?(?:\s*-\s*(\d{1,2})(?::(\d{2}))?\s*(am?|pm?)?)'
-        }
-        self.location_patterns = [
-            r'(?:^|\s)(?:at|in|@)\s+([^,\.\d][^,\.]*?)(?=\s+(?:on|at|from|tomorrow|today|next|every|\d{1,2}(?::(\d{2}))?\s*(?:am?|pm?)|url:|notes?:|link:)|\s*$)|(?:online|virtual)\s*meeting'
-        ]
-        self.alert_patterns = {
-            r'with\s+(\d+)\s*min(?:ute)?s?\s+(?:alert|reminder)': 'minutes',
-            r'(\d+)\s*min(?:ute)?s?\s+(?:alert|reminder)': 'minutes',
-            r'(\d+)\s*hour(?:s)?\s+(?:alert|reminder)': 'hours',
-            r'(?:alert|remind)\s+(\d+)\s*min(?:ute)?s?\s+before': 'minutes',
-            r'(?:alert|remind)\s+(\d+)\s*hour(?:s)?\s+before': 'hours',
-            r'(?:an?\s+hour|half\s+(?:an?\s+)?hour)\s+before': 'natural',  # New natural language support
-        }
-        self.url_patterns = [
-            r'(?:url|link|meet(?:ing)?(?:\s+link)?|zoom|teams):\s*((?:https?://)[^\s]+)',
-            r'\b((?:https?://)?(?:[\w-]+\.)*(?:zoom\.us|teams\.microsoft\.com|meet\.google\.com)/[^\s]+)',
-            r'\b((?:https?://)[^\s]+)(?=\s+(?:notes?:|$)|$)'
-        ]
-        self.notes_patterns = [
-            r'notes?:\s*([^|]+?)(?=(?:\s+(?:url|link|meet(?:ing)?(?:\s+link)?|zoom|teams):|\s*$))',
-            r'description:\s*([^|]+?)(?=(?:\s+(?:url|link|meet(?:ing)?(?:\s+link)?|zoom|teams):|\s*$))',
-            r'details?:\s*([^|]+?)(?=(?:\s+(?:url|link|meet(?:ing)?(?:\s+link)?|zoom|teams):|\s*$))'
-        ]
-        self.recurrence_patterns = {
-            # Only match explicit recurring patterns
-            r'every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)': lambda x: f'FREQ=WEEKLY;BYDAY={x.group(1)[:2].upper()}',
-            r'every\s+(mon|tue|wed|thu|fri|sat|sun)': lambda x: f'FREQ=WEEKLY;BYDAY={x.group(1)[:2].upper()}',
-            r'every\s+week(?:ly)?': 'FREQ=WEEKLY',
-            r'every\s+day|daily': 'FREQ=DAILY',
-            r'every\s+month|monthly': 'FREQ=MONTHLY',
-            r'every\s+year|yearly|annually': 'FREQ=YEARLY',
-            
-            # Pattern for weekdays with end date
-            r'every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+until\s+(\d{1,2}/\d{1,2}(?:/\d{2,4})?)'
-            : lambda x: f'FREQ=WEEKLY;BYDAY={x.group(1)[:2].upper()};UNTIL={parser.parse(x.group(2)).strftime("%Y%m%dT235959Z")}',
-            
-            # Multiple weekdays must be explicit with "every"
-            r'every\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:days?|\.)?(?:\s+and\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:days?|\.)?)*': 
-                lambda x: f'FREQ=WEEKLY;BYDAY={",".join(day[:2].upper() for day in re.findall(r"mon|tue|wed|thu|fri|sat|sun", x.group(0)))}'
-        }
+        
+        # Define weekday_map first
         self.weekday_map = {
             'monday': 'MO', 'tuesday': 'TU', 'wednesday': 'WE', 'thursday': 'TH',
             'friday': 'FR', 'saturday': 'SA', 'sunday': 'SU',
             'mon': 'MO', 'tue': 'TU', 'wed': 'WE', 'thu': 'TH',
             'fri': 'FR', 'sat': 'SA', 'sun': 'SU'
         }
-        # Define base time pattern once and reuse
-        self._base_time = r'\d{1,2}(?::(\d{2}))?\s*(am?|pm?)'
-        self.time_pattern = rf'\b({self._base_time})\b'
         
-        # Use base time pattern in other patterns
-        self.duration_patterns = {
-            'days': r'for\s+(\d+)\s+days?',
-            'hours': r'for\s+(\d+)\s+hours?',
-            'minutes': r'for\s+(\d+)\s+min(?:ute)?s?',
-            'time_range': rf'(\d{{1,2}})(?::(\d{{2}}))?\s*(am?|pm?)?(?:\s*-\s*(\d{{1,2}})(?::(\d{{2}}))?\s*(am?|pm?)?)'
-        }
+        # Create weekdays pattern
+        self.weekdays = '|'.join(self.weekday_map.keys())
         
-        # Simplify location pattern
+        # Calendar pattern
+        self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
+        
+        # Basic time patterns
+        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*([ap]m?)\b'
+        self._base_time = r'\d{1,2}(?::\d{2})?\s*(?:am?|pm?)'
+        self.relative_time_pattern = r'in\s+(\d+)\s+(?:min(?:ute)?s?|hours?)'
+        
+        # Date range pattern
+        self.date_range_pattern = r'from\s+(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(?:-|to)\s*(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)'
+        
+        # Location patterns
         self.location_patterns = [
-            rf'(?:^|\s)(?:at|in|@)\s+([^,\.\d][^,\.]*?)(?=\s+(?:on|at|from|tomorrow|today|next|every|{self._base_time}|url:|notes?:|link:)|\s*$)|(?:online|virtual)\s*meeting'
+            # Basic location with @ marker
+            r'''(?:^|\s)@\s*
+                (
+                    (?:[A-Za-z0-9][A-Za-z0-9\s&\.'+-]*?)
+                    (?:\s*@\s*[A-Za-z0-9][A-Za-z0-9\s&\.'+-]*?)*?
+                )
+                (?=
+                    \s+(?:\d{1,2}(?::\d{2})?\s*(?:am?|pm?)|
+                    (?:[01]\d|2[0-3]):[0-5]\d|
+                    tomorrow|today|next|every)|
+                    \s*$
+                )
+            ''',
+            r'(?:online|virtual)\s*meeting'
         ]
         
-        # Combine common URL prefixes
+        # Location pattern - handles all location cases
+        self.location_pattern = r'@\s*([A-Za-z0-9][A-Za-z0-9\s&\.\'+\-]*?)(?=\s+(?:at\s+\d{1,2}(?::\d{2})?\s*(?:am?|pm?)|tomorrow|today|next|every)|$)'
+        
+        # Ordinal number patterns
+        self.ordinal_patterns = [
+            (r'(\d+)\s*(?:st)\b', r'\1st'),
+            (r'(\d+)\s*(?:nd)\b', r'\1nd'),
+            (r'(\d+)\s*(?:rd)\b', r'\1rd'),
+            (r'(\d+)\s*(?:th)\b', r'\1th'),
+        ]
+        
+        # Update patterns to better handle numbers and "at"
+        self.number_patterns = [
+            # Handle numbers after keywords with optional "at"
+            (r'((?:Floor|Level|Room|St\.?|Street|Ave\.?|Avenue)\s*(?:at\s*)?)(\d+)(st|nd|rd|th)?(?=\s|$)', r'\1\2\3'),
+            
+            # Handle ordinal numbers before keywords
+            (r'(\d+)(st|nd|rd|th)\s+(Floor|Level|Room)', r'\1\2 \3'),
+            
+            # Handle plain numbers with keywords
+            (r'(\d+)(st|nd|rd|th)?\s+(Floor|Level|Room)', r'\1\2 \3'),
+            
+            # Handle street addresses
+            (r'(\d+)(st|nd|rd|th)?\s+(St\.?|Street|Ave\.?|Avenue)', r'\1\2 \3'),
+            
+            # Handle building numbers
+            (r'(Building|Room)\s+(\d+)', r'\1 \2')
+        ]
+        
+        # Location keywords that should keep "at"
+        self.location_keywords = ['floor', 'level', 'room', 'street', 'st', 'ave', 'avenue']
+        
+        # Update alert patterns to handle all cases
+        self.alert_patterns = {
+            # Basic minutes/hours
+            r'(\d+)\s*min(?:ute)?s?\s*(?:alert|reminder)': 'minutes',
+            r'(\d+)\s*hour(?:s)?\s*(?:alert|reminder)': 'hours',
+            # Before cases
+            r'(?:alert|remind)\s+(\d+)\s*min(?:ute)?s?\s*before': 'minutes',
+            r'(?:alert|remind)\s+(\d+)\s*hour(?:s)?\s*before': 'hours',
+            # With cases
+            r'with\s+(\d+)\s*min(?:ute)?s?\s*(?:alert|reminder)': 'minutes',
+            r'with\s+(\d+)\s*hour(?:s)?\s*(?:alert|reminder)': 'hours',
+            # Natural language
+            r'(?:with\s+)?(?:an?\s+hour)\s*(?:alert|reminder|before)': 'natural_hour',
+            r'(?:with\s+)?(?:half\s*(?:an?\s*)?hour)\s*(?:alert|reminder|before)': 'natural_half'
+        }
+        
+        # Duration patterns
+        self.duration_patterns = {
+            'time_range': r'(\d{1,2})(?::(\d{2}))?\s*([ap]m?)?\s*(?:-|to)\s*(\d{1,2})(?::(\d{2}))?\s*([ap]m?)?'
+        }
+        
+        # URL and notes prefixes
         self._url_prefixes = r'(?:url|link|meet(?:ing)?(?:\s+link)?|zoom|teams)'
+        self._note_prefixes = r'(?:notes?|description|details?)'
+        
+        # URL patterns - updated for better matching
         self.url_patterns = [
             rf'{self._url_prefixes}:\s*((?:https?://)[^\s]+)',
-            r'\b((?:https?://)?(?:[\w-]+\.)*(?:zoom\.us|teams\.microsoft\.com|meet\.google\.com)/[^\s]+)',
-            r'\b((?:https?://)[^\s]+)(?=\s+(?:notes?:|$)|$)'
+            r'((?:https?://)?(?:[\w-]+\.)*zoom\.us/[^\s]+)',
+            r'((?:https?://)?(?:[\w-]+\.)*teams\.microsoft\.com/[^\s]+)',
+            r'((?:https?://)?(?:[\w-]+\.)*meet\.google\.com/[^\s]+)'
         ]
         
-        # Combine common note prefixes
-        self._note_prefixes = r'(?:notes?|description|details?)'
+        # Notes patterns
         self.notes_patterns = [
-            rf'{self._note_prefixes}:\s*([^|]+?)(?=(?:\s+(?:{self._url_prefixes}):|\s*$))'
+            rf'{self._note_prefixes}:\s*([^|]+?)(?=\s+(?:{self._url_prefixes}):|\s*$)'
         ]
-        
-        # Simplify recurrence patterns using weekday_map
-        weekdays = '|'.join(self.weekday_map.keys())
-        self.recurrence_patterns = {
-            rf'every\s+({weekdays})': lambda x: f'FREQ=WEEKLY;BYDAY={x.group(1)[:2].upper()}',
-            r'every\s+week(?:ly)?': 'FREQ=WEEKLY',
-            r'every\s+day|daily': 'FREQ=DAILY',
-            r'every\s+month|monthly': 'FREQ=MONTHLY',
-            r'every\s+year|yearly|annually': 'FREQ=YEARLY',
-            rf'every\s+({weekdays})\s+until\s+(\d{{1,2}}/\d{{1,2}}(?:/\d{{2,4}})?)'
-            : lambda x: f'FREQ=WEEKLY;BYDAY={x.group(1)[:2].upper()};UNTIL={parser.parse(x.group(2)).strftime("%Y%m%dT235959Z")}',
-            rf'every\s+(?:{weekdays})(?:days?|\.)?(?:\s+and\s+(?:{weekdays})(?:days?|\.)?)*': 
-                lambda x: f'FREQ=WEEKLY;BYDAY={",".join(day[:2].upper() for day in re.findall(rf"{weekdays}", x.group(0)))}'
+
+        # Add pattern to remove locations from title
+        self.patterns_to_remove = [
+            r'\bevery\b\s+\w+',
+            r'\b(?:tomorrow|today|next|on|at|from|to|daily|weekly|monthly)\b.*$',
+            r'\bon\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?',
+            r'\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?',
+            rf'{self._base_time}.*$',
+            r'for\s+\d+\s+(?:day|hour|minute|min)s?.*$',
+            r'(?:alert|remind).*$',
+            r'with\s+\d+\s*(?:minute|min|hour)s?\s+(?:alert|reminder)',
+            r'url\s+https?://\S+',
+            r'@\s*[^@\s][^@]*(?=\s+(?:at|tomorrow|next|\d|\$|$))'  # Remove location markers
+        ]
+
+        # Section patterns
+        self.section_patterns = {
+            'event_type': r'^(meeting|lunch|dinner|coffee|call|zoom|standup|training|class)',
+            'location': r'@\s*([^@](?:.*?@[^@]+)*?.*?)(?=\s+(?:at\s+\d|tomorrow|next|every|$))',  # Handle multiple @ parts
+            'time': r'(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am?|pm?))',
+            'date': r'(tomorrow|today|next\s+\w+|\d{1,2}/\d{1,2}(?:/\d{2,4})?)',
+            'recurrence': r'(every\s+(?:day|week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|mon|tue|wed|thu|fri|sat|sun))',
         }
 
+        # Recurrence patterns - order matters!
+        self.recurrence_patterns = {
+            # Multiple days pattern (must come before single day)
+            rf'every\s+({self.weekdays})(?:\s+and\s+({self.weekdays}))+': 
+                lambda x: f'FREQ=WEEKLY;BYDAY={",".join(self.weekday_map[day.lower()] for day in re.findall(rf"{self.weekdays}", x.group(0)))}',
+            
+            # Until date pattern (must come before single day)
+            rf'every\s+({self.weekdays})\s+until\s+(\d{{1,2}}/\d{{1,2}}(?:/\d{{2,4}})?)\b':
+                lambda x: f'FREQ=WEEKLY;BYDAY={self.weekday_map[x.group(1).lower()]};UNTIL={self._parse_until_date(x.group(2))}',
+            
+            # Single day pattern
+            rf'every\s+({self.weekdays})\b': 
+                lambda x: f'FREQ=WEEKLY;BYDAY={self.weekday_map[x.group(1).lower()]}',
+            
+            # Simple frequencies
+            r'every\s+week(?:ly)?\b': 'FREQ=WEEKLY',
+            r'every\s+day|daily\b': 'FREQ=DAILY',
+            r'every\s+month|monthly\b': 'FREQ=MONTHLY',
+            r'every\s+year|yearly|annually\b': 'FREQ=YEARLY',
+        }
+
+    def _parse_until_date(self, date_str: str) -> str:
+        """Parse until date and return formatted string"""
+        today = datetime.now()
+        parts = date_str.split('/')
+        if len(parts) == 2:
+            month, date = parts
+            # Use current year, but if date has passed, use next year
+            target_date = datetime(today.year, int(month), int(date))
+            if target_date < today:
+                year = today.year + 1
+            else:
+                year = today.year
+        else:
+            month, date, year = parts
+            if len(year) == 2:
+                year = '20' + year
+        return f"{year}{int(month):02d}{int(date):02d}T235959Z"
+
     def parse_date_range(self, text: str) -> Optional[Tuple[datetime, datetime]]:
-        """Parse date range from text"""
+        """Parse date range from text with better date handling"""
         match = re.search(self.date_range_pattern, text, re.IGNORECASE)
         if match:
             start_str, end_str = match.groups()
             try:
-                start_date = parser.parse(start_str)
-                end_date = parser.parse(end_str)
-                # If year not specified, use current year
-                if start_date.year == datetime.now().year and end_date.year == datetime.now().year:
-                    if end_date < start_date:
+                today = datetime.now()
+                
+                # Parse dates with default year handling
+                start_date = parser.parse(start_str, default=today)
+                end_date = parser.parse(end_str, default=today)
+                
+                # If end date is before start date, try next month/year
+                if end_date < start_date:
+                    if start_date.month == end_date.month:
+                        # Same month, assume next year
                         end_date = end_date.replace(year=end_date.year + 1)
+                    else:
+                        # Different month, might be next month
+                        end_date = end_date + relativedelta(months=1)
+                        if end_date < start_date:
+                            end_date = end_date.replace(year=end_date.year + 1)
+                
                 return start_date, end_date
-            except:
+            except (ValueError, TypeError):
                 return None
         return None
     
@@ -263,69 +348,56 @@ class CalendarNLPProcessor:
         return "Calendar"
 
     def parse_duration(self, text: str) -> int:
-        """Extract duration in minutes from text"""
-        # First check for time range (e.g., "5-6pm")
-        range_match = re.search(self.duration_patterns['time_range'], text, re.IGNORECASE)
-        if range_match:
-            start_hour = int(range_match.group(1))
-            start_min = int(range_match.group(2)) if range_match.group(2) else 0
-            start_meridiem = range_match.group(3).lower() if range_match.group(3) else ''
-            end_hour = int(range_match.group(4))
-            end_min = int(range_match.group(5)) if range_match.group(5) else 0
-            end_meridiem = range_match.group(6).lower() if range_match.group(6) else ''
+        """Parse duration from text, returns minutes"""
+        # Default duration of 60 minutes
+        default_duration = 60
+        
+        # Try to match time range pattern
+        match = re.search(self.duration_patterns['time_range'], text, re.IGNORECASE)
+        if match:
+            start_hour, start_min, start_meridiem, end_hour, end_min, end_meridiem = match.groups()
             
-            # Handle am/pm
-            if start_meridiem:
-                if start_meridiem.startswith('p') and start_hour != 12:
-                    start_hour += 12
-                elif start_meridiem.startswith('a') and start_hour == 12:
+            # Convert to 24-hour format
+            start_hour = int(start_hour)
+            end_hour = int(end_hour)
+            start_min = int(start_min) if start_min else 0
+            end_min = int(end_min) if end_min else 0
+            
+            # Handle meridiem (AM/PM)
+            start_meridiem = start_meridiem.lower() if start_meridiem else end_meridiem.lower()
+            end_meridiem = end_meridiem.lower() if end_meridiem else start_meridiem.lower()
+            
+            # Adjust hours for PM
+            if start_meridiem and 'p' in start_meridiem and start_hour != 12:
+                start_hour += 12
+            if end_meridiem and 'p' in end_meridiem and end_hour != 12:
+                end_hour += 12
+            
+            # Handle 12 AM/PM special cases
+            if start_hour == 12:
+                if start_meridiem and 'a' in start_meridiem:
                     start_hour = 0
-                    
-            if end_meridiem:
-                if end_meridiem.startswith('p') and end_hour != 12:
-                    end_hour += 12
-                elif end_meridiem.startswith('a') and end_hour == 12:
+            if end_hour == 12:
+                if end_meridiem and 'a' in end_meridiem:
                     end_hour = 0
             
-            duration_minutes = ((end_hour * 60 + end_min) - (start_hour * 60 + start_min))
-            if duration_minutes > 0:
-                return duration_minutes
-            elif duration_minutes < 0:  # Handle crossing midnight
-                return duration_minutes + 24 * 60
-                
-        # Check other duration patterns
-        total_minutes = 60  # Default duration
-        
-        days_match = re.search(self.duration_patterns['days'], text, re.IGNORECASE)
-        if days_match:
-            return int(days_match.group(1)) * 24 * 60
-        
-        hours_match = re.search(self.duration_patterns['hours'], text, re.IGNORECASE)
-        if hours_match:
-            total_minutes = int(hours_match.group(1)) * 60
-        
-        minutes_match = re.search(self.duration_patterns['minutes'], text, re.IGNORECASE)
-        if minutes_match:
-            total_minutes = int(minutes_match.group(1))
-        
-        return total_minutes
+            # Calculate duration in minutes
+            start_minutes = start_hour * 60 + start_min
+            end_minutes = end_hour * 60 + end_min
+            
+            # Handle crossing midnight
+            if end_minutes < start_minutes:
+                end_minutes += 24 * 60
+            
+            duration = end_minutes - start_minutes
+            return duration if duration > 0 else default_duration
+            
+        return default_duration
 
     def clean_title(self, text: str) -> str:
         """Clean up the title"""
-        patterns_to_remove = [
-            r'\bevery\b\s+\w+',
-            r'\b(?:tomorrow|today|next|on|at|from|to|daily|weekly|monthly)\b.*$',
-            r'\bon\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?',
-            r'\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?',
-            rf'{self._base_time}.*$',
-            r'for\s+\d+\s+(?:day|hour|minute|min)s?.*$',
-            r'(?:alert|remind).*$',
-            r'with\s+\d+\s*(?:minute|min|hour)s?\s+(?:alert|reminder)',
-            r'url\s+https?://\S+'
-        ]
-        
         title = text
-        for pattern in patterns_to_remove:
+        for pattern in self.patterns_to_remove:
             title = re.sub(pattern, '', title, flags=re.IGNORECASE)
         
         # Remove URLs and notes
@@ -340,19 +412,160 @@ class CalendarNLPProcessor:
         
         return title.strip()
 
-    def parse_location(self, text: str) -> Optional[str]:
-        """Extract location from text"""
-        for pattern in self.location_patterns:
-            match = re.search(pattern, text)
+    def verify_location(self, location: str) -> Tuple[bool, Optional[str]]:
+        """Verify location using macOS Contacts and Maps
+        Returns: (is_valid, formatted_location)
+        """
+        # First check Contacts with more detail
+        contacts_script = '''
+            tell application "Contacts"
+                set matchingContacts to {}
+                repeat with theContact in every person
+                    set contactMatches to {}
+                    repeat with theAddress in every address of theContact
+                        set addressText to formatted address of theAddress as string
+                        if addressText contains "%s" then
+                            -- Get contact details
+                            set contactName to name of theContact
+                            set addressLabel to label of theAddress
+                            if addressLabel is missing value then
+                                set addressLabel to "address"
+                            end if
+                            -- Format as JSON-like string
+                            set contactInfo to contactName & "|" & addressLabel & "|" & addressText
+                            copy contactInfo to the end of contactMatches
+                        end if
+                    end repeat
+                    if length of contactMatches > 0 then
+                        copy contactMatches to the end of matchingContacts
+                    end if
+                end repeat
+                return matchingContacts
+            end tell
+        ''' % location.replace('"', '\\"')
+        
+        try:
+            result = subprocess.run(['osascript', '-e', contacts_script],
+                                  capture_output=True,
+                                  text=True,
+                                  check=True)
+            if result.stdout.strip():
+                # Process multiple matches
+                matches = result.stdout.strip().split(', ')
+                if len(matches) > 1:
+                    # Multiple matches found - format them for selection
+                    formatted_matches = []
+                    for match in matches:
+                        name, label, address = match.split('|')
+                        formatted_matches.append(f"{name} ({label}): {address}")
+                    # Return the most relevant match (first one for now)
+                    # Could be enhanced to use fuzzy matching or other relevance criteria
+                    return True, formatted_matches[0]
+                else:
+                    # Single match
+                    name, label, address = matches[0].split('|')
+                    return True, f"{name} ({label}): {address}"
+        except subprocess.CalledProcessError:
+            pass
+
+        # Then check Maps
+        maps_script = '''
+            tell application "Maps"
+                try
+                    set searchResults to search for "%s"
+                    set matchingLocations to {}
+                    repeat with i from 1 to count of searchResults
+                        if i > 3 then exit repeat -- Limit to top 3 results
+                        set theResult to item i of searchResults
+                        copy (name of theResult & "|" & address of theResult) to the end of matchingLocations
+                    end repeat
+                    return matchingLocations
+                on error
+                    return ""
+                end try
+            end tell
+        ''' % location.replace('"', '\\"')
+        
+        try:
+            result = subprocess.run(['osascript', '-e', maps_script],
+                                  capture_output=True,
+                                  text=True,
+                                  check=True)
+            if result.stdout.strip():
+                # Process multiple matches from Maps
+                matches = result.stdout.strip().split(', ')
+                if len(matches) > 1:
+                    # Multiple matches - format them for selection
+                    formatted_matches = []
+                    for match in matches:
+                        name, address = match.split('|')
+                        formatted_matches.append(f"{name} ({address})")
+                    # Return most relevant (first) match
+                    return True, formatted_matches[0]
+                else:
+                    # Single match
+                    name, address = matches[0].split('|')
+                    return True, f"{name} ({address})"
+        except subprocess.CalledProcessError:
+            pass
+            
+        # If not found, return original location
+        return False, location
+
+    def split_into_sections(self, text: str) -> dict:
+        """Split text into sections based on markers"""
+        sections = {
+            'event_type': None,
+            'location': None,
+            'time': None,
+            'date': None,
+            'recurrence': None,
+            'remaining': text
+        }
+        
+        # Extract each section
+        for section_type, pattern in self.section_patterns.items():
+            match = re.search(pattern, sections['remaining'], re.IGNORECASE)
             if match:
-                location = match.group(1).strip()
-                if not any(p in location.lower() for p in ['notes:', 'url:', 'link:', 'alert', 'remind']):
-                    # Remove duration and time references
-                    location = re.sub(r'for\s+\d+\s+(?:day|hour|minute|min)s?', '', location, flags=re.IGNORECASE)
-                    location = re.sub(rf'{self._base_time}', '', location, flags=re.IGNORECASE)
-                    location = re.sub(r'(?:^|\s+)(?:at|in)\s+', '', location, flags=re.IGNORECASE)
-                    return location.strip()
-        return None
+                sections[section_type] = match.group(1)
+                sections['remaining'] = re.sub(pattern, '', sections['remaining'], count=1)
+        
+        return sections
+
+    def parse_location(self, text: str) -> Optional[str]:
+        """Extract location from text with verification"""
+        # Pre-process text to handle no spaces around @
+        text = re.sub(r'(?<=[A-Za-z0-9])@(?=[A-Za-z0-9])', ' @ ', text)
+        
+        # Find location after @
+        match = re.search(self.location_pattern, text, re.IGNORECASE)
+        if not match:
+            return None
+            
+        location = match.group(1).strip()
+        
+        # Skip if contains special keywords
+        if any(p in location.lower() for p in ['notes:', 'url:', 'link:', 'alert', 'remind']):
+            return None
+        
+        # Handle ordinal numbers
+        for pattern, repl in self.ordinal_patterns:
+            location = re.sub(pattern, repl, location)
+        
+        # Add space between text and numbers
+        location = re.sub(r'([A-Za-z])(\d)', r'\1 \2', location)
+        
+        # Clean up extra spaces
+        location = re.sub(r'\s+', ' ', location).strip()
+        
+        # Remove trailing words
+        location = re.sub(r'\s+(?:tomorrow|today|next|every)\s*$', '', location, flags=re.IGNORECASE)
+        
+        # Verify and format
+        is_valid, formatted_location = self.verify_location(location)
+        if is_valid:
+            return formatted_location
+        return location
     
     def clean_location(self, text: str, time_str: str = '') -> Optional[str]:
         """Clean up location string"""
@@ -362,19 +575,7 @@ class CalendarNLPProcessor:
         cleaned = text.strip()
         
         # Remove specific words and patterns
-        patterns_to_remove = [
-            r'\bstarting\b',
-            r'for\s+\d+\s+(?:day|hour|minute|min)s?',
-            r'\d{1,2}(?::\d{2})?\s*[ap]m?',  # Updated to match a/p and am/pm
-            r'(?:^|\s+)(?:at|in)\s+',
-            r'\s+for\s*$',
-            r'url:.*$',
-            r'notes:.*$',
-            r'with\s+\d+\s*min(?:ute)?s?\s+alert',
-            r'alert\s+\d+\s*min(?:ute)?s?'
-        ]
-        
-        for pattern in patterns_to_remove:
+        for pattern in self.clean_patterns:
             cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
         
         # Clean up extra whitespace
@@ -410,29 +611,42 @@ class CalendarNLPProcessor:
         return None
 
     def parse_url_and_notes(self, text: str) -> Tuple[Optional[str], Optional[str]]:
-        """Extract URL and notes from text with enhanced meeting link support"""
-        notes, working_text = self._extract_notes(text)
+        """Extract URL and notes from text"""
+        url = None
+        notes = None
         
-        # Try to find video conference URLs first
+        # Try URL patterns first
         for pattern in self.url_patterns:
-            url_match = re.search(pattern, working_text, re.IGNORECASE)
-            if url_match:
-                url = url_match.group(1).rstrip('.,;')
-                # Validate and clean up video conference URLs
-                if any(domain in url.lower() for domain in ['zoom.us', 'teams.microsoft.com', 'meet.google.com']):
-                    # Add https:// if missing
-                    if not url.startswith(('http://', 'https://')):
-                        url = 'https://' + url
-                    return url, notes
-                # Validate general URLs
-                try:
-                    result = urllib.parse.urlparse(url)
-                    if all([result.scheme, result.netloc]):
-                        return url, notes
-                except Exception:
-                    continue
-                    
-        return None, notes
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                url = match.group(1).strip()
+                break
+        
+        # Then try notes patterns
+        for pattern in self.notes_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                notes = match.group(1).strip()
+                break
+        
+        return url, notes
+
+    def parse_recurrence(self, text: str) -> Optional[str]:
+        """Extract recurrence pattern from text"""
+        if not re.search(r'\bevery\b', text.lower()):
+            return None
+            
+        text_lower = text.lower()
+        
+        # Try each pattern
+        for pattern, format_str in self.recurrence_patterns.items():
+            match = re.search(pattern, text_lower)
+            if match:
+                if callable(format_str):
+                    return format_str(match)
+                return format_str
+        
+        return None
 
     def fix_relative_date(self, base_date: datetime, text: str) -> datetime:
         """Fix relative dates based on current date"""
@@ -476,53 +690,24 @@ class CalendarNLPProcessor:
 
     def parse_alerts(self, text: str) -> List[int]:
         """Extract alert times from text"""
-        alerts = set()  # Use set to avoid duplicates
+        alerts = set()
         
-        # Handle natural language times first
-        natural_matches = re.finditer(r'(?:an?\s+hour|half\s+(?:an?\s+)?hour)\s+before', text, re.IGNORECASE)
-        for match in natural_matches:
-            if 'half' in match.group(0).lower():
-                alerts.add(30)  # 30 minutes
-            else:
-                alerts.add(60)  # 1 hour
-        
-        # Handle numeric patterns
+        # Process each alert pattern
         for pattern, unit in self.alert_patterns.items():
-            if unit != 'natural':  # Skip natural language pattern here
-                matches = re.finditer(pattern, text, re.IGNORECASE)
-                for match in matches:
+            matches = re.finditer(pattern, text, re.IGNORECASE | re.VERBOSE)
+            for match in matches:
+                if unit == 'natural_hour':
+                    alerts.add(60)  # 1 hour in minutes
+                elif unit == 'natural_half':
+                    alerts.add(30)  # 30 minutes
+                else:
                     time_val = int(match.group(1))
                     if unit == 'hours':
-                        time_val *= 60  # Convert hours to minutes
+                        time_val *= 60
                     alerts.add(time_val)
-                    
-        return sorted(alerts) if alerts else [15]  # Default 15 minutes if no match
+        
+        return sorted(alerts) if alerts else [15]
 
-    def parse_recurrence(self, text: str) -> Optional[str]:
-        """Extract recurrence pattern from text"""
-        # Only process recurrence if "every" is present
-        if not re.search(r'\bevery\b', text.lower()):
-            return None
-            
-        text_lower = text.lower()
-        
-        # Handle "every year on MM/DD"
-        birthday_match = re.search(r'every\s+year\s+on\s+(\d{1,2}/\d{1,2})', text_lower)
-        if birthday_match:
-            date_str = birthday_match.group(1)
-            month, day = map(int, date_str.split('/'))
-            return f'FREQ=YEARLY;BYMONTH={month};BYMONTHDAY={day}'
-        
-        # Check other recurrence patterns
-        for pattern, format_str in self.recurrence_patterns.items():
-            match = re.search(pattern, text_lower)
-            if match:
-                if callable(format_str):
-                    return format_str(match)
-                return format_str
-                
-        return None
-    
     def parse_time(self, text: str, base_date: datetime) -> datetime:
         """Parse time from text with proper handling of different formats"""
         # Check for "now"
@@ -547,60 +732,86 @@ class CalendarNLPProcessor:
             minutes = int(match.group(2)) if match.group(2) else 0
             meridiem = match.group(3).lower() if match.group(3) else ''
             
-            # Handle am/pm
+            # Handle am/pm more explicitly
             if meridiem:
-                if meridiem.startswith('p') and hour != 12:
+                if meridiem in ('p', 'pm') and hour != 12:
                     hour += 12
-                elif meridiem.startswith('a') and hour == 12:
+                elif meridiem in ('a', 'am') and hour == 12:
                     hour = 0
-                    
+            
             return base_date.replace(hour=hour, minute=minutes, second=0, microsecond=0)
             
         return base_date
 
     def parse_event(self, text: str) -> dict:
+        """Parse event details from text"""
+        # Initialize basic event structure
+        event_details = {
+            'title': '',
+            'calendar': 'Calendar',
+            'start_date': '',
+            'start_time': '',
+            'end_date': '',
+            'end_time': '',
+            'alerts': [15]  # Default 15-min alert
+        }
+        
         try:
+            # Parse components
             url, notes = self.parse_url_and_notes(text)
             clean_text = self._clean_text_for_parsing(text, url)
             
-            # Get calendar based on text or default
-            calendar_name = self.parse_calendar_name(clean_text)
+            # Set title first
+            event_details['title'] = self.clean_title(clean_text)
             
-            # Check for date range
+            # Get calendar
+            calendar_name = self.parse_calendar_name(clean_text)
+            if calendar_name:
+                event_details['calendar'] = calendar_name
+            
+            # Parse date/time
             date_range = self.parse_date_range(clean_text)
             if date_range:
                 start_date, end_date = date_range
-                event_details = {
-                    'title': self.clean_title(clean_text),
-                    'calendar': calendar_name,
-                    'start_date': start_date.strftime('%Y-%m-%d'),
-                    'start_time': start_date.strftime('%H:%M:%S'),
-                    'end_date': end_date.strftime('%Y-%m-%d'),
-                    'end_time': end_date.strftime('%H:%M:%S'),
-                    'alerts': self.parse_alerts(clean_text)
-                }
             else:
-                # Regular event parsing
-                parsed_date = self.parse_time(clean_text, self._get_base_date(clean_text))
+                base_date = self._get_base_date(clean_text)
+                start_date = self.parse_time(clean_text, base_date)
                 duration = self.parse_duration(clean_text)
-                end_date = parsed_date + timedelta(minutes=duration)
-                
-                event_details = {
-                    'title': self.clean_title(clean_text),
-                    'calendar': calendar_name,
-                    'start_date': parsed_date.strftime('%Y-%m-%d'),
-                    'start_time': parsed_date.strftime('%H:%M:%S'),
-                    'end_date': end_date.strftime('%Y-%m-%d'),
-                    'end_time': end_date.strftime('%H:%M:%S'),
-                    'alerts': self.parse_alerts(clean_text)
-                }
+                end_date = start_date + timedelta(minutes=duration)
+            
+            # Update date/time fields
+            event_details.update({
+                'start_date': start_date.strftime('%Y-%m-%d'),
+                'start_time': start_date.strftime('%H:%M:%S'),
+                'end_date': end_date.strftime('%Y-%m-%d'),
+                'end_time': end_date.strftime('%H:%M:%S'),
+            })
+            
+            # Parse alerts
+            alerts = self.parse_alerts(clean_text)
+            if alerts:
+                event_details['alerts'] = alerts
             
             # Add optional fields
-            self._add_optional_fields(event_details, clean_text, url, notes)
+            location = self.parse_location(clean_text)
+            if location:
+                event_details['location'] = location
             
-            return event_details
+            if url:
+                event_details['url'] = url
+            
+            if notes:
+                event_details['notes'] = notes
+            
+            recurrence = self.parse_recurrence(clean_text)
+            if recurrence:
+                event_details['recurrence'] = recurrence
+            
         except Exception as e:
-            return {'error': str(e)}
+            print(f"Error parsing event: {str(e)}", file=sys.stderr)
+            event_details['error'] = str(e)
+        
+        return event_details
         
     def _clean_text_for_parsing(self, text: str, url: Optional[str]) -> str:
         """Clean text for parsing"""
