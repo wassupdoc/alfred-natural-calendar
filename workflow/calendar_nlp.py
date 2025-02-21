@@ -65,7 +65,7 @@ class CalendarNLPProcessor:
         self.calendars = self.get_available_calendars()
         self.config = self.load_config()
         self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
-        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
+        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am?|pm?)\b'
         self.relative_time_pattern = r'in\s+(\d+)\s+(minutes?|hours?)'
         self.date_range_pattern = r'from\s+(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s*(?:-|to)\s*(\w+\s+\d{1,2}|\d{1,2}/\d{1,2}(?:/\d{2,4})?)'
         self.duration_patterns = {
