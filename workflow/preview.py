@@ -8,6 +8,14 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, List
 
+# Handle both direct execution and module import
+try:
+    from . import build_time_pattern, parse_time_match
+except ImportError:
+    # When running directly from Alfred
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from __init__ import build_time_pattern, parse_time_match
+
 def get_workflow_data_dir():
     """Get Alfred workflow data directory"""
     data_dir = os.getenv('alfred_workflow_data')
@@ -20,7 +28,7 @@ class EventPreview:
     def __init__(self):
         # Initialize patterns
         self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
-        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b'
+        self.time_pattern = build_time_pattern()
         self.location_pattern = r'(?:^|\s)(?:at|in)\s+([^,\.\d][^,\.]*?)(?=\s+(?:on|at|from|tomorrow|today|next|every|\d{1,2}(?::\d{2})?(?:am|pm)|url:|notes?:|link:)|\s*$)'
         
         # Load default calendar from config
@@ -56,15 +64,7 @@ class EventPreview:
         """Parse time from text"""
         match = re.search(self.time_pattern, text, re.IGNORECASE)
         if match:
-            hour = int(match.group(1))
-            minutes = int(match.group(2)) if match.group(2) else 0
-            meridiem = match.group(3).lower() if match.group(3) else ''
-            
-            if meridiem == 'pm' and hour != 12:
-                hour += 12
-            elif meridiem == 'am' and hour == 12:
-                hour = 0
-            
+            hour, minutes = parse_time_match(match)
             now = datetime.now()
             return now.replace(hour=hour, minute=minutes, second=0, microsecond=0)
         return None

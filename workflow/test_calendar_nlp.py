@@ -176,6 +176,16 @@ class TestCalendarNLP(unittest.TestCase):
             ("meeting at 2PM", "2:00 PM"),
             ("call at 3A", "3:00 AM"),
             ("lunch at 12P", "12:00 PM"),
+            
+            # Space variations
+            ("dinner at 6 p", "6:00 PM"),
+            ("dinner at 6 pm", "6:00 PM"),
+            ("dinner at 6p", "6:00 PM"),
+            ("dinner at 6pm", "6:00 PM"),
+            ("meeting at 9 a", "9:00 AM"),
+            ("meeting at 9 am", "9:00 AM"),
+            ("meeting at 9a", "9:00 AM"),
+            ("meeting at 9am", "9:00 AM"),
         ]
         
         for input_text, expected_time in test_cases:
@@ -345,6 +355,42 @@ class TestCalendarNLP(unittest.TestCase):
                 print(f"Debug - Input text: {input_text}", file=sys.stderr)
                 parsed_location = self.processor.parse_location(input_text)
                 self.assertEqual(parsed_location, expected_location)
+
+    def test_time_variations(self):
+        """Test various time input formats"""
+        test_cases = [
+            # Basic p/pm variations
+            ("dinner at 6p", "6:00 PM"),
+            ("dinner at 6 p", "6:00 PM"),
+            ("dinner at 6pm", "6:00 PM"),
+            ("dinner at 6 pm", "6:00 PM"),
+            
+            # Basic a/am variations
+            ("breakfast at 8a", "8:00 AM"),
+            ("breakfast at 8 a", "8:00 AM"),
+            ("breakfast at 8am", "8:00 AM"),
+            ("breakfast at 8 am", "8:00 AM"),
+            
+            # Without 'at'
+            ("dinner 6p", "6:00 PM"),
+            ("dinner 6 p", "6:00 PM"),
+            ("dinner 6pm", "6:00 PM"),
+            ("dinner 6 pm", "6:00 PM"),
+            
+            # With minutes
+            ("meeting at 6:30p", "6:30 PM"),
+            ("meeting at 6:30 p", "6:30 PM"),
+            ("meeting at 6:30pm", "6:30 PM"),
+            ("meeting at 6:30 pm", "6:30 PM"),
+        ]
+        
+        for input_text, expected_time in test_cases:
+            with self.subTest(input_text=input_text):
+                print(f"Debug - Input text: {input_text}")
+                result = self.processor.parse_event(input_text)
+                parsed_time = datetime.strptime(result['start_time'], '%H:%M:%S').strftime('%-I:%M %p')
+                print(f"Debug - Parsed time: {parsed_time}")
+                self.assertEqual(parsed_time, expected_time)
 
 if __name__ == '__main__':
     unittest.main() 

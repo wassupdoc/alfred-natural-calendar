@@ -5,9 +5,25 @@ import sys
 import os
 import subprocess
 import json
+import re
+from datetime import datetime, timedelta, date
+import urllib.parse
+from typing import Dict, Optional, List, Tuple
+from . import build_time_pattern, build_base_time_pattern, parse_time_match
+
+# Make dateutil optional - only needed for certain date parsing features
+try:
+    from dateutil import parser, relativedelta
+    HAVE_DATEUTIL = True
+except ImportError:
+    HAVE_DATEUTIL = False
 
 def ensure_dependencies():
     """Ensure all required dependencies are installed"""
+    # Only check dependencies when running in Alfred
+    if not os.getenv('alfred_workflow_data'):
+        return
+
     workflow_dir = os.path.dirname(os.path.abspath(__file__))
     lib_dir = os.path.join(workflow_dir, 'lib')
     
@@ -49,6 +65,7 @@ import re
 from datetime import datetime, timedelta, date
 import urllib.parse
 from typing import Dict, Optional, List, Tuple
+from . import build_time_pattern, build_base_time_pattern, parse_time_match
 
 def get_workflow_data_dir():
     """Get Alfred workflow data directory"""
@@ -79,9 +96,9 @@ class CalendarNLPProcessor:
         # Calendar pattern
         self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
         
-        # Basic time patterns
-        self.time_pattern = r'\b(\d{1,2})(?::(\d{2}))?\s*([ap]m?)\b'
-        self._base_time = r'\d{1,2}(?::\d{2})?\s*(?:am?|pm?)'
+        # Build time patterns from components
+        self.time_pattern = build_time_pattern()
+        self._base_time = build_base_time_pattern()
         self.relative_time_pattern = r'in\s+(\d+)\s+(?:min(?:ute)?s?|hours?)'
         
         # Date range pattern
@@ -106,7 +123,7 @@ class CalendarNLPProcessor:
         ]
         
         # Location pattern - handles all location cases
-        self.location_pattern = r'@\s*([A-Za-z0-9][A-Za-z0-9\s&\.\'+\-]*?)(?=\s+(?:at\s+\d{1,2}(?::\d{2})?\s*(?:am?|pm?)|tomorrow|today|next|every)|$)'
+        self.location_pattern = fr'@\s*([A-Za-z0-9][A-Za-z0-9\s&\.\'+\-]*?)(?=\s+(?:{self.time_pattern}|tomorrow|today|next|every)|$)'
         
         # Ordinal number patterns
         self.ordinal_patterns = [
@@ -709,38 +726,11 @@ class CalendarNLPProcessor:
         return sorted(alerts) if alerts else [15]
 
     def parse_time(self, text: str, base_date: datetime) -> datetime:
-        """Parse time from text with proper handling of different formats"""
-        # Check for "now"
-        if 'now' in text.lower():
-            return datetime.now().replace(second=0, microsecond=0)
-            
-        # Check for "in X minutes/hours"
-        relative_match = re.search(self.relative_time_pattern, text, re.IGNORECASE)
-        if relative_match:
-            amount = int(relative_match.group(1))
-            unit = relative_match.group(2).lower()
-            now = datetime.now()
-            if 'hour' in unit:
-                return now + timedelta(hours=amount)
-            else:
-                return now + timedelta(minutes=amount)
-                
-        # Regular time pattern
+        """Parse time from text"""
         match = re.search(self.time_pattern, text, re.IGNORECASE)
         if match:
-            hour = int(match.group(1))
-            minutes = int(match.group(2)) if match.group(2) else 0
-            meridiem = match.group(3).lower() if match.group(3) else ''
-            
-            # Handle am/pm more explicitly
-            if meridiem:
-                if meridiem in ('p', 'pm') and hour != 12:
-                    hour += 12
-                elif meridiem in ('a', 'am') and hour == 12:
-                    hour = 0
-            
+            hour, minutes = parse_time_match(match)
             return base_date.replace(hour=hour, minute=minutes, second=0, microsecond=0)
-            
         return base_date
 
     def parse_event(self, text: str) -> dict:
