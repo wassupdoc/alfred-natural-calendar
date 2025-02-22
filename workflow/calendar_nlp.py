@@ -9,7 +9,20 @@ import re
 from datetime import datetime, timedelta, date
 import urllib.parse
 from typing import Dict, Optional, List, Tuple
-from . import build_time_pattern, build_base_time_pattern, parse_time_match
+
+# Setup imports
+if __name__ == '__main__':
+    from utils import setup_imports
+    setup_imports()
+    # Use absolute imports when running directly
+    from __init__ import build_time_pattern, build_base_time_pattern, parse_time_match
+    from logger import setup_logger
+    from config import get_testing_mode
+else:
+    # Use relative imports when imported as module
+    from . import build_time_pattern, build_base_time_pattern, parse_time_match
+    from .logger import setup_logger
+    from .config import get_testing_mode
 
 # Make dateutil optional - only needed for certain date parsing features
 try:
@@ -17,6 +30,9 @@ try:
     HAVE_DATEUTIL = True
 except ImportError:
     HAVE_DATEUTIL = False
+
+# Get logger with testing mode
+logger = setup_logger('calendar_nlp', testing=get_testing_mode())
 
 def ensure_dependencies():
     """Ensure all required dependencies are installed"""
@@ -65,7 +81,6 @@ import re
 from datetime import datetime, timedelta, date
 import urllib.parse
 from typing import Dict, Optional, List, Tuple
-from . import build_time_pattern, build_base_time_pattern, parse_time_match
 
 def get_workflow_data_dir():
     """Get Alfred workflow data directory"""
@@ -79,6 +94,7 @@ def get_workflow_data_dir():
 
 class CalendarNLPProcessor:
     def __init__(self):
+        logger.debug("Initializing CalendarNLPProcessor")
         self.calendars = self.get_available_calendars()
         self.config = self.load_config()
         
@@ -735,6 +751,7 @@ class CalendarNLPProcessor:
 
     def parse_event(self, text: str) -> dict:
         """Parse event details from text"""
+        logger.debug(f"Parsing event text: {text}")
         # Initialize basic event structure
         event_details = {
             'title': '',
@@ -749,6 +766,7 @@ class CalendarNLPProcessor:
         try:
             # Parse components
             url, notes = self.parse_url_and_notes(text)
+            logger.debug(f"Extracted URL: {url}, Notes: {notes}")
             clean_text = self._clean_text_for_parsing(text, url)
             
             # Set title first
@@ -797,11 +815,12 @@ class CalendarNLPProcessor:
             if recurrence:
                 event_details['recurrence'] = recurrence
             
+            logger.debug(f"Final event details: {event_details}")
+            return event_details
         except Exception as e:
-            print(f"Error parsing event: {str(e)}", file=sys.stderr)
+            logger.error(f"Error parsing event: {e}", exc_info=True)
             event_details['error'] = str(e)
-        
-        return event_details
+            return event_details
         
     def _clean_text_for_parsing(self, text: str, url: Optional[str]) -> str:
         """Clean text for parsing"""
@@ -850,145 +869,45 @@ class CalendarNLPProcessor:
         if recurrence:
             event_details['recurrence'] = recurrence
 
-def create_calendar_event(event_details: dict) -> str:
-    """Create calendar event with proper date handling"""
-    start_date = datetime.strptime(f"{event_details['start_date']} {event_details['start_time']}", "%Y-%m-%d %H:%M:%S")
-    end_date = datetime.strptime(f"{event_details['end_date']} {event_details['end_time']}", "%Y-%m-%d %H:%M:%S")
+def main():
+    if len(sys.argv) < 2:
+        print("No input provided")
+        sys.exit(1)
+        
+    text = sys.argv[1]
+    processor = CalendarNLPProcessor()
+    event = processor.parse_event(text)
     
-    # Properly escape the strings for AppleScript
-    calendar_name = event_details["calendar"].replace('"', '\\"')
-    title = event_details["title"].replace('"', '\\"')
+    # Add debug logging
+    logger.debug(f"Event details before creation: {event}")
     
-    script = f'''
-        tell application "Calendar"
-            tell calendar "{calendar_name}"
-                -- Set up start date
-                set eventStartDate to current date
-                set year of eventStartDate to {start_date.year}
-                set month of eventStartDate to {start_date.month}
-                set day of eventStartDate to {start_date.day}
-                set hours of eventStartDate to {start_date.hour}
-                set minutes of eventStartDate to {start_date.minute}
-                set seconds of eventStartDate to 0
-                
-                -- Set up end date
-                set eventEndDate to current date
-                set year of eventEndDate to {end_date.year}
-                set month of eventEndDate to {end_date.month}
-                set day of eventEndDate to {end_date.day}
-                set hours of eventEndDate to {end_date.hour}
-                set minutes of eventEndDate to {end_date.minute}
-                set seconds of eventEndDate to 0
-                
-                -- Create event with all required properties
-                make new event with properties {{summary:"{title}", start date:eventStartDate, end date:eventEndDate}}
-                set newEvent to result
-    '''
-    
-    # Add optional properties
-    if 'location' in event_details:
-        location = event_details['location'].replace('"', '\\"')
-        script += f'\n                set location of newEvent to "{location}"'
-    
-    if 'url' in event_details:
-        url = event_details['url'].replace('"', '\\"')
-        script += f'\n                set url of newEvent to "{url}"'
-    
-    if 'notes' in event_details:
-        notes = event_details['notes'].replace('"', '\\"')
-        script += f'\n                set description of newEvent to "{notes}"'
-    
-    if 'recurrence' in event_details:
-        recurrence = event_details['recurrence'].replace('"', '\\"')
-        script += f'\n                set recurrence of newEvent to "{recurrence}"'
-    
-    # Add alerts
-    for minutes in event_details['alerts']:
-        alert_time = start_date - timedelta(minutes=minutes)
-        script += f'''
-                set alertDate to current date
-                set year of alertDate to {alert_time.year}
-                set month of alertDate to {alert_time.month}
-                set day of alertDate to {alert_time.day}
-                set hours of alertDate to {alert_time.hour}
-                set minutes of alertDate to {alert_time.minute}
-                set seconds of alertDate to 0
-                make new display alarm at newEvent with properties {{trigger date:alertDate}}
-        '''
-    
-    script += '''
-                return newEvent
-            end tell
-        end tell
-    '''
-    
+    # Call create_event.py with event data
     try:
-        result = subprocess.run(['osascript', '-e', script],
-                              capture_output=True,
-                              text=True,
-                              check=True)
+        event_json = json.dumps(event)
+        create_event_script = os.path.join(os.path.dirname(__file__), 'create_event.py')
         
-        if result.stderr:
-            raise Exception(result.stderr)
+        # Add debug logging
+        logger.debug(f"Running create_event.py with: {event_json}")
+        logger.debug(f"Script path: {create_event_script}")
         
-        # Format notification...
-        time_str = start_date.strftime("%-I:%M %p")
-        today = datetime.now()
-        tomorrow = today + timedelta(days=1)
-        
-        if start_date.date() == today.date():
-            date_str = f"Today at {time_str}"
-        elif start_date.date() == tomorrow.date():
-            date_str = f"Tomorrow at {time_str}"
-        else:
-            date_str = start_date.strftime("%A, %B %-d at %I:%M %p")
-        
-        notification_details = f"📅 {event_details['calendar']} • {date_str}"
-        if 'location' in event_details:
-            notification_details += f"\n📍 {event_details['location']}"
-        
-        return json.dumps({
-            "alfredworkflow": {
-                "arg": notification_details,
-                "variables": {
-                    "notificationTitle": event_details['title']
-                }
-            }
-        })
-        
+        result = subprocess.run(
+            [sys.executable, create_event_script, event_json],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.debug(f"Create event output: {result.stdout}")
+        logger.debug(f"Create event stderr: {result.stderr}")
+        print(result.stdout)
     except subprocess.CalledProcessError as e:
-        error_msg = e.stderr if e.stderr else str(e)
-        return json.dumps({
+        logger.error(f"Failed to create event: {e}")
+        logger.error(f"Stderr: {e.stderr}")
+        print(json.dumps({
             "alfredworkflow": {
-                "arg": f"Error: {error_msg}",
+                "arg": f"Error creating event: {e}",
                 "variables": {
                     "notificationTitle": "Error"
                 }
-            }
-        })
-
-def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({
-            "alfredworkflow": {
-                "arg": "No input provided",
-                "variables": {"error": "no_input"}
-            }
-        }))
-        return
-
-    user_input = " ".join(sys.argv[1:])
-    processor = CalendarNLPProcessor()
-    event_details = processor.parse_event(user_input)
-    
-    if 'error' not in event_details:
-        result = create_calendar_event(event_details)
-        print(result)
-    else:
-        print(json.dumps({
-            "alfredworkflow": {
-                "arg": f"Error parsing input: {event_details['error']}",
-                "variables": event_details
             }
         }))
 

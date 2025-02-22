@@ -19,3 +19,4 @@ dist/*.alfredworkflow
 
 # Keep dist directory
 !dist/.gitkeep
+workflow.log

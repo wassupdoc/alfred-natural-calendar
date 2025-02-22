@@ -8,13 +8,18 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional, List
 
-# Handle both direct execution and module import
-try:
-    from . import build_time_pattern, parse_time_match
-except ImportError:
-    # When running directly from Alfred
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from __init__ import build_time_pattern, parse_time_match
+# Setup imports
+if __name__ == '__main__':
+    from utils import setup_imports
+    setup_imports()
+
+# Now import workflow modules
+from __init__ import build_time_pattern, parse_time_match
+from logger import setup_logger
+from config import get_testing_mode
+
+# Get logger
+logger = setup_logger('preview', testing=get_testing_mode())
 
 def get_workflow_data_dir():
     """Get Alfred workflow data directory"""
@@ -26,6 +31,7 @@ def get_workflow_data_dir():
 
 class EventPreview:
     def __init__(self):
+        logger.debug("Initializing EventPreview")
         # Initialize patterns
         self.calendar_pattern = r'#(?:"([^"]+)"|\'([^\']+)\'|([^"\'\s]+))'
         self.time_pattern = build_time_pattern()
@@ -158,6 +164,7 @@ class EventPreview:
 
     def generate_items(self, text: str) -> List[dict]:
         """Generate preview items"""
+        logger.debug(f"Generating preview for: {text}")
         title = self.clean_title(text)
         calendar = self.get_calendar(text)
         date = self.parse_date(text)
